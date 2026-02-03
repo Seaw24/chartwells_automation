@@ -1,0 +1,8 @@
+/cash sheets
+/reports
+Tender Breakdown.xlsx
+/__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+/myenv
