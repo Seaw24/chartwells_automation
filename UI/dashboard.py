@@ -1,22 +1,20 @@
 import customtkinter as ctk
-# Ensure components/sidebar.py exists
+from datetime import datetime
+from components.taskManager import TaskManager
 from components.sidebar import SideBar
+from components.summaryPanel import SummaryPanel
+from components.resizablePane import ResizablePane
 
 
 class Dashboard(ctk.CTkFrame):
     def __init__(self, parent):
-        # 1. FIX: Accept 'parent' and pass it to super()
-        super().__init__(parent)
+        super().__init__(parent, fg_color="#F5F5F7")
 
-        # 2. FIX: Remove self.title/geometry. Frames don't have these.
-        # We handle geometry in the main execution block below.
-
-        # --- Layout Configuration ---
-        # Col 0 = Sidebar (fixed), Col 1 = Main Content (expandable)
+        # Layout Configuration
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # ---------------- Sidebar Integration ---------------- #
+        # Sidebar
         self.side_bar = SideBar(
             self,
             show_dashboard=self.show_dashboard,
@@ -25,65 +23,150 @@ class Dashboard(ctk.CTkFrame):
         )
         self.side_bar.grid(row=0, column=0, sticky="nsew")
 
-        # ---------------- Page Content Area ---------------- #
-
-        # 1. Dashboard Content Frame
-        self.dashboard_content = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkLabel(self.dashboard_content, text="Dashboard Content Goes Here",
-                     font=ctk.CTkFont(size=16),
-                     # Changed to white for dark mode visibility
-                     text_color="white").pack(pady=20)
-
-        # 2. Cash Sheet Autofill Content Frame
-        self.cashet_sheet_content = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkLabel(self.cashet_sheet_content, text="Cash Sheet Autofill Content Goes Here",
-                     font=ctk.CTkFont(size=16)).pack(pady=20)
-
-        # 3. Tender Breakdown Autofill Content Frame
-        self.tender_breakdown_content = ctk.CTkFrame(
-            self, fg_color="transparent")
-        ctk.CTkLabel(self.tender_breakdown_content, text="Tender Breakdown Autofill Content Goes Here",
-                     font=ctk.CTkFont(size=16)).pack(pady=20)
+        # Content Pages
+        self._create_dashboard_content()
+        self._create_cash_sheet_content()
+        self._create_tender_breakdown_content()
 
         # Show default page
         self.show_dashboard()
 
+    def _create_dashboard_content(self):
+        """Create the main dashboard page"""
+        self.dashboard_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
+
+        # Header Section
+        header_frame = ctk.CTkFrame(
+            self.dashboard_content, fg_color="transparent")
+        header_frame.pack(fill="x", padx=24, pady=(20, 6))
+
+        # Top row: title + date
+        top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        top_row.pack(fill="x")
+
+        # Main title
+        ctk.CTkLabel(
+            top_row,
+            text="Dashboard",
+            font=ctk.CTkFont(size=28, weight="bold", family="Arial"),
+            text_color="#1a1a1a",
+            anchor="w"
+        ).pack(side="left")
+
+        # Current date badge
+        today = datetime.now().strftime("%A, %b %d")
+        date_frame = ctk.CTkFrame(top_row, fg_color="#EDE9FF", corner_radius=8)
+        date_frame.pack(side="right")
+        ctk.CTkLabel(
+            date_frame, text=f"  📅  {today}  ",
+            font=ctk.CTkFont(size=12, family="Arial"),
+            text_color="#6C5CE7"
+        ).pack(padx=6, pady=4)
+
+        # Greeting subtitle
+        hour = datetime.now().hour
+        if hour < 12:
+            greeting = "Good Morning"
+        elif hour < 17:
+            greeting = "Good Afternoon"
+        else:
+            greeting = "Good Evening"
+
+        ctk.CTkLabel(
+            header_frame,
+            text=f"Hi Chartwells, {greeting}!",
+            font=ctk.CTkFont(size=14, family="Arial"),
+            text_color="#9E9E9E",
+            anchor="w"
+        ).pack(side="top", anchor="w", pady=(4, 0))
+
+        # Resizable pane with Summary (top) and Task Manager (bottom)
+        self.resizable_pane = ResizablePane(
+            self.dashboard_content,
+            top_widget_class=SummaryPanel,
+            bottom_widget_class=TaskManager,
+            initial_top_ratio=0.35,
+            min_top=60,
+            min_bottom=80
+        )
+        self.resizable_pane.pack(
+            fill="both", expand=True, padx=20, pady=(8, 12))
+
+        # Get references to the actual widgets
+        self.summary_panel = self.resizable_pane.top_widget
+        self.task_manager = self.resizable_pane.bottom_widget
+
+        # Update with sample data
+        self.summary_panel.update_value(
+            transfer=1380,
+            flex=597,
+            ucash=250,
+            dining=425,
+            contract_card=320,
+            creditcard=875,
+            total=3847
+        )
+
+    def _create_cash_sheet_content(self):
+        """Create the cash sheet autofill page"""
+        self.cash_sheet_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
+
+        label = ctk.CTkLabel(
+            self.cash_sheet_content,
+            text="Cash Sheet Autofill Content Goes Here",
+            font=ctk.CTkFont(size=18, family="Arial"),
+            text_color="#1a1a1a"
+        )
+        label.pack(pady=20, padx=20)
+
+    def _create_tender_breakdown_content(self):
+        """Create the tender breakdown autofill page"""
+        self.tender_breakdown_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
+
+        label = ctk.CTkLabel(
+            self.tender_breakdown_content,
+            text="Tender Breakdown Autofill Content Goes Here",
+            font=ctk.CTkFont(size=18, family="Arial"),
+            text_color="#1a1a1a"
+        )
+        label.pack(pady=20, padx=20)
+
     def _hide_all_frames(self):
-        """ Hide all content frames using grid_forget (matches .grid) """
+        """Hide all content frames"""
         self.dashboard_content.grid_forget()
-        self.cashet_sheet_content.grid_forget()
+        self.cash_sheet_content.grid_forget()
         self.tender_breakdown_content.grid_forget()
 
     def show_dashboard(self):
+        """Show the dashboard page"""
         self._hide_all_frames()
         self.dashboard_content.grid(row=0, column=1, sticky="nsew")
-        # Ensure string matches Sidebar logic exactly
         self.side_bar.active_function("Dashboard")
 
     def show_cash_sheet_autofill(self):
+        """Show the cash sheet autofill page"""
         self._hide_all_frames()
-        self.cashet_sheet_content.grid(row=0, column=1, sticky="nsew")
-        # Ensure string matches Sidebar logic exactly
+        self.cash_sheet_content.grid(row=0, column=1, sticky="nsew")
         self.side_bar.active_function("Cash Sheet Autofill")
 
     def show_tender_breakdown_autofill(self):
+        """Show the tender breakdown autofill page"""
         self._hide_all_frames()
         self.tender_breakdown_content.grid(row=0, column=1, sticky="nsew")
-        # Ensure string matches Sidebar logic exactly
         self.side_bar.active_function("Tender Breakdown Autofill")
 
 
 if __name__ == "__main__":
-    # 3. FIX: Create the ROOT window here
+    # Create root window
     app = ctk.CTk()
-
-    # Configure the Window settings here (not in the Frame class)
     app.title("Chartwells Finance Dashboard")
-    app.geometry("1000x700")
-    ctk.set_appearance_mode("light")
-    ctk.set_default_color_theme("dark-blue")
+    app.geometry("1200x800")
 
-    # Create the Dashboard Frame inside the Root Window
+    # Set appearance
+    ctk.set_appearance_mode("light")
+    ctk.set_default_color_theme("blue")
+
+    # Create and pack dashboard
     dashboard = Dashboard(app)
     dashboard.pack(fill="both", expand=True)
 
