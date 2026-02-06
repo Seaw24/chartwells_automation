@@ -1,6 +1,9 @@
 import customtkinter as ctk
+from datetime import datetime
+from components.taskManager import TaskManager
 from components.sidebar import SideBar
 from components.summaryPanel import SummaryPanel
+from components.resizablePane import ResizablePane
 
 
 class Dashboard(ctk.CTkFrame):
@@ -35,55 +38,74 @@ class Dashboard(ctk.CTkFrame):
         # Header Section
         header_frame = ctk.CTkFrame(
             self.dashboard_content, fg_color="transparent")
-        header_frame.pack(fill="x", padx=20, pady=(20, 10))
+        header_frame.pack(fill="x", padx=24, pady=(20, 6))
+
+        # Top row: title + date
+        top_row = ctk.CTkFrame(header_frame, fg_color="transparent")
+        top_row.pack(fill="x")
 
         # Main title
-        title_label = ctk.CTkLabel(
-            header_frame,
+        ctk.CTkLabel(
+            top_row,
             text="Dashboard",
-            font=ctk.CTkFont(size=32, weight="bold", family="Arial"),
+            font=ctk.CTkFont(size=28, weight="bold", family="Arial"),
             text_color="#1a1a1a",
             anchor="w"
-        )
-        title_label.pack(side="top", anchor="w")
+        ).pack(side="left")
+
+        # Current date badge
+        today = datetime.now().strftime("%A, %b %d")
+        date_frame = ctk.CTkFrame(top_row, fg_color="#EDE9FF", corner_radius=8)
+        date_frame.pack(side="right")
+        ctk.CTkLabel(
+            date_frame, text=f"  📅  {today}  ",
+            font=ctk.CTkFont(size=12, family="Arial"),
+            text_color="#6C5CE7"
+        ).pack(padx=6, pady=4)
 
         # Greeting subtitle
-        greeting_label = ctk.CTkLabel(
+        hour = datetime.now().hour
+        if hour < 12:
+            greeting = "Good Morning"
+        elif hour < 17:
+            greeting = "Good Afternoon"
+        else:
+            greeting = "Good Evening"
+
+        ctk.CTkLabel(
             header_frame,
-            text="Hi James, Good Morning!",
-            font=ctk.CTkFont(size=16, family="Arial"),
+            text=f"Hi Chartwells, {greeting}!",
+            font=ctk.CTkFont(size=14, family="Arial"),
             text_color="#9E9E9E",
             anchor="w"
-        )
-        greeting_label.pack(side="top", anchor="w", pady=(5, 0))
+        ).pack(side="top", anchor="w", pady=(4, 0))
 
-        # Summary Panel
-        self.summary_panel = SummaryPanel(self.dashboard_content)
-        self.summary_panel.pack(fill="x", padx=20, pady=(20, 10))
+        # Resizable pane with Summary (top) and Task Manager (bottom)
+        self.resizable_pane = ResizablePane(
+            self.dashboard_content,
+            top_widget_class=SummaryPanel,
+            bottom_widget_class=TaskManager,
+            initial_top_ratio=0.35,
+            min_top=60,
+            min_bottom=80
+        )
+        self.resizable_pane.pack(
+            fill="both", expand=True, padx=20, pady=(8, 12))
+
+        # Get references to the actual widgets
+        self.summary_panel = self.resizable_pane.top_widget
+        self.task_manager = self.resizable_pane.bottom_widget
 
         # Update with sample data
         self.summary_panel.update_value(
-            flex_sales=597,
-            credit_cards=875,
-            transfers=1380,
-            total_revenue=1200
+            transfer=1380,
+            flex=597,
+            ucash=250,
+            dining=425,
+            contract_card=320,
+            creditcard=875,
+            total=3847
         )
-
-        # Placeholder for Task Manager
-        self.middle_section = ctk.CTkFrame(
-            self.dashboard_content,
-            fg_color="white",
-            corner_radius=15
-        )
-        self.middle_section.pack(fill="both", expand=True, padx=20, pady=10)
-
-        placeholder_label = ctk.CTkLabel(
-            self.middle_section,
-            text="(Task Manager will go here)",
-            text_color="#9E9E9E",
-            font=ctk.CTkFont(size=14)
-        )
-        placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def _create_cash_sheet_content(self):
         """Create the cash sheet autofill page"""

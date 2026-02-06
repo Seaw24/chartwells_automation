@@ -4,7 +4,8 @@ from PIL import Image
 
 class SideBar(ctk.CTkFrame):
     def __init__(self, parent, show_dashboard, show_cash_sheet_autofill, show_tender_breakdown_autofill):
-        super().__init__(parent, width=80, corner_radius=0, fg_color="#6C5CE7")
+        super().__init__(parent, width=80, corner_radius=0, fg_color="#6C5CE7",
+                         border_width=0)
 
         # Sidebar state
         self.is_expanded = False
@@ -250,25 +251,44 @@ class SideBar(ctk.CTkFrame):
         )
         button.grid(row=0, column=0)
 
-        # Label (hidden by default)
+        # Label (hidden by default) - make it clickable
         label = ctk.CTkLabel(btn_frame, text=label_text, font=ctk.CTkFont(
-            size=14), text_color="white", anchor="w")
+            size=14), text_color="white", anchor="w", cursor="hand2")
+
+        # Bind click event to label for navigation
+        label.bind("<Button-1>", lambda e, cmd=command: cmd())
 
         storage_list.append(
             {'frame': btn_frame, 'button': button, 'label': label, 'identifier': identifier})
 
     def active_function(self, tab_name):
-        # Reset colors
+        # Reset all nav buttons and labels
         for btn in self.nav_buttons:
             btn['button'].configure(fg_color="transparent")
+            btn['label'].configure(
+                font=ctk.CTkFont(size=14),
+                text_color="#DAD7FF"
+            )
 
         target = tab_name.lower()
         if target == "dashboard":
-            self.home_button.configure(fg_color="#8B7FEF")
+            self.nav_buttons[0]['button'].configure(fg_color="#8B7FEF")
+            self.nav_buttons[0]['label'].configure(
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#FFFFFF"
+            )
         elif "cash sheet" in target:
-            self.cash_sheet_button.configure(fg_color="#8B7FEF")
+            self.nav_buttons[1]['button'].configure(fg_color="#8B7FEF")
+            self.nav_buttons[1]['label'].configure(
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#FFFFFF"
+            )
         elif "tender" in target:
-            self.tender_button.configure(fg_color="#8B7FEF")
+            self.nav_buttons[2]['button'].configure(fg_color="#8B7FEF")
+            self.nav_buttons[2]['label'].configure(
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#FFFFFF"
+            )
 
     def open_settings(self): print("Settings clicked")
     def contact_support(self): print("Support clicked")
