@@ -4,122 +4,271 @@ from PIL import Image
 
 class SideBar(ctk.CTkFrame):
     def __init__(self, parent, show_dashboard, show_cash_sheet_autofill, show_tender_breakdown_autofill):
-        super().__init__(parent, width=200, corner_radius=0, fg_color="#6C63FF")
+        super().__init__(parent, width=80, corner_radius=0, fg_color="#6C5CE7")
 
-        # --- MAIN LAYOUT CONFIGURATION ---
-        # Row 0: Top Frame (Logo + Nav) - Takes all extra space (weight=1)
-        # Row 1: Bottom Frame (Settings) - Stays at bottom (weight=0)
-        self.grid_rowconfigure(0, weight=1)
+        # Sidebar state
+        self.is_expanded = False
+        self.collapsed_width = 80
+        self.expanded_width = 240
+        self.animation_id = None
+        self.current_width = self.collapsed_width
+        self._poll_id = None  # For mouse-leave polling
+
+        # Prevent sidebar from shrinking/growing automatically
+        self.grid_propagate(False)
+
+        # Main layout configuration
+        self.grid_rowconfigure(0, weight=0)  # Logo
+        self.grid_rowconfigure(1, weight=1)  # Nav
+        self.grid_rowconfigure(2, weight=0)  # Bottom
         self.grid_columnconfigure(0, weight=1)
 
-        # =========================================================================#
-        # PART 1: TOP FRAME (Logo + Navigation)
-        # =========================================================================#
-        self.top_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.top_frame.grid(row=0, column=0, sticky="nsew")
+        # Store command references
+        self.show_dashboard = show_dashboard
+        self.show_cash_sheet_autofill = show_cash_sheet_autofill
+        self.show_tender_breakdown_autofill = show_tender_breakdown_autofill
 
-        # Layout inside Top Frame:
-        # Row 0: Logo
-        # Row 1: Spacer (Pushes Nav down)
-        # Row 2: Nav Buttons
-        self.top_frame.grid_rowconfigure(1, weight=1)
-        self.top_frame.grid_columnconfigure(0, weight=1)
+        # Bind hover events to the FRAME
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
 
-        # ----- Logo Section (Row 0) ----- #
+        # Create sidebar sections
+        self._create_logo_section()
+        self._create_navigation_section()
+        self._create_bottom_section()
+
+        # Bind <Enter> to all children so hovering any widget expands
+        self._bind_enter_recursive(self)
+
+    def _bind_enter_recursive(self, widget):
+        """Bind <Enter> to widget and all its children"""
         try:
-            # We use a try/except block just in case the image file is missing
-            self.logo_image = ctk.CTkImage(Image.open(
-                "logo/chartwells.jfif"), size=(180, 50))
-            self.logo_label = ctk.CTkLabel(
-                self.top_frame, image=self.logo_image, text="", compound="top")
+            widget.bind("<Enter>", self.on_enter)
         except Exception:
-            # Fallback if image not found
-            self.logo_label = ctk.CTkLabel(
-                self.top_frame, text="CHARTWELLS", font=("Arial", 20, "bold"))
+            pass
+        for child in widget.winfo_children():
+            self._bind_enter_recursive(child)
 
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 30))
+    def _is_mouse_over_sidebar(self):
+        """Check if mouse is within sidebar bounds"""
+        try:
+            x, y = self.winfo_pointerxy()
+            sx = self.winfo_rootx()
+            sy = self.winfo_rooty()
+            sw = self.winfo_width()
+            sh = self.winfo_height()
+            return sx <= x < sx + sw and sy <= y < sy + sh
+        except Exception:
+            return False
 
-        # ----- Button Frame (Row 2) ----- #
-        self.button_frame = ctk.CTkFrame(
-            self.top_frame, fg_color="transparent")
-        self.button_frame.grid(
-            row=1, column=0, sticky="nsew", padx=10, pady=10)
+    def on_enter(self, event):
+        """Expand sidebar on hover"""
+        if not self.is_expanded:
+            self._expand()
 
-        # Home Button
-        self.home_image = ctk.CTkImage(Image.open(
-            "logo\\home.png"), size=(30, 30))
-        self.show_dashboard_button = self.create_nav_btn(
-            self.button_frame, "", show_dashboard, self.home_image)
-        self.show_dashboard_button.pack(pady=10,)
+    def _expand(self):
+        """Expand the sidebar instantly"""
+        if self.animation_id:
+            self.after_cancel(self.animation_id)
+            self.animation_id = None
 
-        self.show_cash_sheet_autofill_button = self.create_nav_btn(
-            self.button_frame, "Cash Sheet Autofill", show_cash_sheet_autofill)
-        self.show_cash_sheet_autofill_button.pack(pady=10, fill="x")
+        self.is_expanded = True
+        # Snap width instantly - no animation
+        self.current_width = self.expanded_width
+        self.configure(width=self.expanded_width)
+        self.update_idletasks()
+        self._show_labels_and_align_left()
+        self._start_polling()
 
-        self.show_tender_breakdown_autofill_button = self.create_nav_btn(
-            self.button_frame, "Tender Breakdown", show_tender_breakdown_autofill)
-        self.show_tender_breakdown_autofill_button.pack(pady=10, fill="x")
+    def on_leave(self, event):
+        """Collapse sidebar when mouse leaves"""
+        # Let the polling handle the collapse check
+        pass
 
-        # =========================================================================#
-        # PART 2: BOTTOM FRAME (Settings + Support)
-        # =========================================================================#
-        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=20)
+    def _start_polling(self):
+        """Poll to check if mouse has left the sidebar"""
+        if self._poll_id:
+            self.after_cancel(self._poll_id)
 
-        # 1. Separator (Inside bottom frame, at the top)
-        self.separator = ctk.CTkFrame(
-            self.bottom_frame, height=2, fg_color="gray50")
-        self.separator.pack(fill="x", pady=(0, 15))
+        def poll():
+            if not self.is_expanded:
+                self._poll_id = None
+                return
 
-        # 2. Settings Buttons
-        # Note: We pass strings directly, not 'text="Settings"'
-        self.settings_button = self.create_nav_btn(
-            self.bottom_frame, "Settings", self.open_settings)
-        self.settings_button.pack(pady=5, fill="x")
+            if not self._is_mouse_over_sidebar():
+                self.is_expanded = False
+                self._hide_labels_and_center()
+                # Snap width instantly - no animation
+                self.current_width = self.collapsed_width
+                self.configure(width=self.collapsed_width)
+                self.update_idletasks()
+                self._poll_id = None
+                return
 
-        self.contact_support_button = self.create_nav_btn(
-            self.bottom_frame, "Contact Support", self.contact_support)
-        self.contact_support_button.pack(pady=5, fill="x")
+            self._poll_id = self.after(100, poll)
 
-        # 3. Footer
-        self.lbl_version = ctk.CTkLabel(
-            self.bottom_frame, text="v1.0.0", text_color="gray75", font=("Arial", 10))
-        self.lbl_version.pack(pady=(10, 0))
+        self._poll_id = self.after(100, poll)
 
-    def create_nav_btn(self, parent, text, command, image=None):
-        """ Helper to create styled buttons consistently """
-        return ctk.CTkButton(parent, text=text, anchor="w",
-                             fg_color="transparent",
-                             image=image,
-                             height=30,
-                             width=30,
-                             text_color="white",
-                             hover_color="#55C2F8",
-                             command=command)
+    def _animate_to(self, target_width, on_complete=None):
+        """Smooth easing animation"""
+        if self.animation_id:
+            self.after_cancel(self.animation_id)
+            self.animation_id = None
+
+        start_width = self.current_width
+        total_distance = target_width - start_width
+        duration = 550  # milliseconds
+        frame_time = 3  # ~66fps for smoother feel
+        total_frames = max(1, duration // frame_time)
+        frame = [0]
+
+        def ease_out_quint(t):
+            return 1 - (1 - t) ** 3
+
+        def animate():
+            frame[0] += 1
+            progress = min(frame[0] / total_frames, 1.0)
+            eased = ease_out_quint(progress)
+
+            self.current_width = start_width + (total_distance * eased)
+            self.configure(width=int(self.current_width))
+
+            if progress < 1.0:
+                self.animation_id = self.after(frame_time, animate)
+            else:
+                self.current_width = target_width
+                self.configure(width=target_width)
+                self.animation_id = None
+                if on_complete:
+                    on_complete()
+
+        animate()
+
+    def _show_labels_and_align_left(self):
+        """Align icons left and show labels"""
+        # Align logo left and show finance label
+        self.logo_content_frame.pack_configure(padx=(15, 0), anchor="w")
+        self.finance_label.grid(row=0, column=1, sticky="w", padx=(15, 0))
+
+        # Align nav buttons left and show labels
+        for btn_data in self.nav_buttons:
+            btn_data['frame'].pack_configure(padx=(15, 0), anchor="w")
+            btn_data['label'].grid(row=0, column=1, sticky="w", padx=(10, 10))
+
+        # Align bottom buttons left and show labels
+        for btn_data in self.bottom_buttons:
+            btn_data['frame'].pack_configure(padx=(15, 0), anchor="w")
+            btn_data['label'].grid(row=0, column=1, sticky="w", padx=(10, 10))
+
+    def _hide_labels_and_center(self):
+        """Hide labels and center icons"""
+        # Hide finance label and center logo
+        self.finance_label.grid_forget()
+        self.logo_content_frame.pack_configure(padx=0, anchor="center")
+
+        # Hide nav labels and center buttons
+        for btn_data in self.nav_buttons:
+            btn_data['label'].grid_forget()
+            btn_data['frame'].pack_configure(padx=0, anchor="center")
+
+        # Hide bottom labels and center buttons
+        for btn_data in self.bottom_buttons:
+            btn_data['label'].grid_forget()
+            btn_data['frame'].pack_configure(padx=0, anchor="center")
+
+    def _create_logo_section(self):
+        logo_frame = ctk.CTkFrame(self, fg_color="transparent")
+        logo_frame.grid(row=0, column=0, pady=(20, 30), sticky="ew")
+
+        img = ctk.CTkImage(light_image=Image.open(
+            "logo/chartwells.jfif"), size=(40, 20))
+        # Container for icon and text - centered by default
+        self.logo_content_frame = ctk.CTkFrame(
+            logo_frame, fg_color="transparent")
+        self.logo_content_frame.pack(
+            padx=0, anchor="center")  # Centered when collapsed
+
+        # Icon circle
+        icon_frame = ctk.CTkFrame(
+            self.logo_content_frame, fg_color="white", width=50, height=50)
+        icon_frame.grid(row=0, column=0)
+        icon_frame.grid_propagate(False)
+
+        ctk.CTkLabel(icon_frame, text="", image=img, font=ctk.CTkFont(
+            size=24), text_color="#6C5CE7").place(relx=0.5, rely=0.5, anchor="center")
+
+        # Finance text (initially hidden)
+        self.finance_label = ctk.CTkLabel(self.logo_content_frame, text="Finance", font=ctk.CTkFont(
+            size=16, weight="bold"), text_color="white")
+
+    def _create_navigation_section(self):
+        nav_frame = ctk.CTkFrame(self, fg_color="transparent")
+        nav_frame.grid(row=1, column=0, sticky="nsew", pady=20)
+
+        self.nav_buttons = []
+
+        nav_items = [
+            ("🏠", "Home", self.show_dashboard, "dashboard"),
+            ("💰", "Cash Sheet", self.show_cash_sheet_autofill, "cash sheet"),
+            ("💳", "Tender Breakdown",
+             self.show_tender_breakdown_autofill, "tender breakdown"),
+        ]
+
+        for icon, label, cmd, uid in nav_items:
+            self._add_button(nav_frame, self.nav_buttons,
+                             icon, label, cmd, uid)
+
+        self.home_button = self.nav_buttons[0]['button']
+        self.cash_sheet_button = self.nav_buttons[1]['button']
+        self.tender_button = self.nav_buttons[2]['button']
+
+    def _create_bottom_section(self):
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame.grid(row=2, column=0, sticky="ew", pady=(0, 20))
+
+        self.bottom_buttons = []
+        bottom_items = [
+            ("🎧", "Support", self.contact_support, "Support"),
+            ("⚙️", "Settings", self.open_settings, "Settings")
+        ]
+
+        for icon, label, cmd, uid in bottom_items:
+            self._add_button(bottom_frame, self.bottom_buttons,
+                             icon, label, cmd, uid)
+
+    def _add_button(self, parent, storage_list, icon, label_text, command, identifier):
+        """Helper to create nav buttons"""
+        btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        # Centered when collapsed
+        btn_frame.pack(pady=5, padx=0, anchor="center")
+
+        # Button
+        button = ctk.CTkButton(
+            btn_frame, text=icon, width=50, height=50, corner_radius=25,
+            fg_color="transparent", hover_color="#5B4CD6",
+            font=ctk.CTkFont(size=24), command=command, cursor="hand2"
+        )
+        button.grid(row=0, column=0)
+
+        # Label (hidden by default)
+        label = ctk.CTkLabel(btn_frame, text=label_text, font=ctk.CTkFont(
+            size=14), text_color="white", anchor="w")
+
+        storage_list.append(
+            {'frame': btn_frame, 'button': button, 'label': label, 'identifier': identifier})
 
     def active_function(self, tab_name):
-        """ Highlight the active button in the sidebar """
-        # Make all buttons transparent
-        self.show_dashboard_button.configure(fg_color="transparent")
-        self.show_cash_sheet_autofill_button.configure(fg_color="transparent")
-        self.show_tender_breakdown_autofill_button.configure(
-            fg_color="transparent")
+        # Reset colors
+        for btn in self.nav_buttons:
+            btn['button'].configure(fg_color="transparent")
 
-        # Normalize the input string
-        target = tab_name.strip().lower()
-
-        # Highlight the active button
+        target = tab_name.lower()
         if target == "dashboard":
-            self.show_dashboard_button.configure(fg_color="#61C6F9")
+            self.home_button.configure(fg_color="#8B7FEF")
         elif "cash sheet" in target:
-            self.show_cash_sheet_autofill_button.configure(
-                fg_color="#61C6F9")
-        elif "tender breakdown" in target:
-            self.show_tender_breakdown_autofill_button.configure(
-                fg_color="#61C6F9")
+            self.cash_sheet_button.configure(fg_color="#8B7FEF")
+        elif "tender" in target:
+            self.tender_button.configure(fg_color="#8B7FEF")
 
-    def open_settings(self):
-        print("Settings button clicked")
-
-    def contact_support(self):
-        print("Contact Support button clicked")
+    def open_settings(self): print("Settings clicked")
+    def contact_support(self): print("Support clicked")
