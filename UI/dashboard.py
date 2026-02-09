@@ -4,6 +4,7 @@ from components.taskManager import TaskManager
 from components.sidebar import SideBar
 from components.summaryPanel import SummaryPanel
 from components.resizablePane import ResizablePane
+from components.cash_sheet_autofill_UI import CashSheetAutofillUI
 
 
 class Dashboard(ctk.CTkFrame):
@@ -19,7 +20,6 @@ class Dashboard(ctk.CTkFrame):
             self,
             show_dashboard=self.show_dashboard,
             show_cash_sheet_autofill=self.show_cash_sheet_autofill,
-            show_tender_breakdown_autofill=self.show_tender_breakdown_autofill
         )
         self.side_bar.grid(row=0, column=0, sticky="nsew")
 
@@ -108,28 +108,15 @@ class Dashboard(ctk.CTkFrame):
         )
 
     def _create_cash_sheet_content(self):
-        """Create the cash sheet autofill page"""
+        """Create the unified autofill page (tabbed: cash sheet / tender / config)"""
         self.cash_sheet_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
 
-        label = ctk.CTkLabel(
-            self.cash_sheet_content,
-            text="Cash Sheet Autofill Content Goes Here",
-            font=ctk.CTkFont(size=18, family="Arial"),
-            text_color="#1a1a1a"
-        )
-        label.pack(pady=20, padx=20)
+        self.autofill_ui = CashSheetAutofillUI(self.cash_sheet_content)
+        self.autofill_ui.pack(fill="both", expand=True, padx=20, pady=20)
 
     def _create_tender_breakdown_content(self):
-        """Create the tender breakdown autofill page"""
-        self.tender_breakdown_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
-
-        label = ctk.CTkLabel(
-            self.tender_breakdown_content,
-            text="Tender Breakdown Autofill Content Goes Here",
-            font=ctk.CTkFont(size=18, family="Arial"),
-            text_color="#1a1a1a"
-        )
-        label.pack(pady=20, padx=20)
+        """Tender breakdown shares the same tabbed UI — just reuse it"""
+        self.tender_breakdown_content = self.cash_sheet_content
 
     def _hide_all_frames(self):
         """Hide all content frames"""
@@ -144,15 +131,17 @@ class Dashboard(ctk.CTkFrame):
         self.side_bar.active_function("Dashboard")
 
     def show_cash_sheet_autofill(self):
-        """Show the cash sheet autofill page"""
+        """Show the autofill page on the Cash Sheet tab"""
         self._hide_all_frames()
         self.cash_sheet_content.grid(row=0, column=1, sticky="nsew")
+        self.autofill_ui._select_tab("cash_sheet")
         self.side_bar.active_function("Cash Sheet Autofill")
 
     def show_tender_breakdown_autofill(self):
-        """Show the tender breakdown autofill page"""
+        """Show the autofill page on the Tender Breakdown tab"""
         self._hide_all_frames()
-        self.tender_breakdown_content.grid(row=0, column=1, sticky="nsew")
+        self.cash_sheet_content.grid(row=0, column=1, sticky="nsew")
+        self.autofill_ui._select_tab("tender")
         self.side_bar.active_function("Tender Breakdown Autofill")
 
 

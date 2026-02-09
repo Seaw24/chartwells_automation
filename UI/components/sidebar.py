@@ -3,7 +3,7 @@ from PIL import Image
 
 
 class SideBar(ctk.CTkFrame):
-    def __init__(self, parent, show_dashboard, show_cash_sheet_autofill, show_tender_breakdown_autofill):
+    def __init__(self, parent, show_dashboard, show_cash_sheet_autofill):
         super().__init__(parent, width=80, corner_radius=0, fg_color="#6C5CE7",
                          border_width=0)
 
@@ -27,7 +27,6 @@ class SideBar(ctk.CTkFrame):
         # Store command references
         self.show_dashboard = show_dashboard
         self.show_cash_sheet_autofill = show_cash_sheet_autofill
-        self.show_tender_breakdown_autofill = show_tender_breakdown_autofill
 
         # Bind hover events to the FRAME
         self.bind("<Enter>", self.on_enter)
@@ -210,9 +209,7 @@ class SideBar(ctk.CTkFrame):
 
         nav_items = [
             ("🏠", "Home", self.show_dashboard, "dashboard"),
-            ("💰", "Cash Sheet", self.show_cash_sheet_autofill, "cash sheet"),
-            ("💳", "Tender Breakdown",
-             self.show_tender_breakdown_autofill, "tender breakdown"),
+            ("🤖", "Auto Fill Center", self.show_cash_sheet_autofill, "cash sheet"),
         ]
 
         for icon, label, cmd, uid in nav_items:
@@ -221,7 +218,6 @@ class SideBar(ctk.CTkFrame):
 
         self.home_button = self.nav_buttons[0]['button']
         self.cash_sheet_button = self.nav_buttons[1]['button']
-        self.tender_button = self.nav_buttons[2]['button']
 
     def _create_bottom_section(self):
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
