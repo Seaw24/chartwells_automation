@@ -15,19 +15,12 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 if str(BASE_DIR) not in sys.path:
     sys.path.append(str(BASE_DIR))
 
-    from src_cash_sheet_filler.config import (
-        REPORTS_CASHSHEET_MAP, FILL_COL_MAP, CHECKING_COL_MAP)
+    from BE.src.cash_sheet_filler.config import (
+        REPORTS_CASHSHEET_MAP, FILL_COL_MAP, CHECKING_COL_MAP, INFOR_TENDERS, TAVLO_TENDERS, CASHEET_TENDERS, load_config as load_cash_sheet_config, save_config as save_cash_sheet_config)
 
-# Tender breakdown config lives in a hyphenated folder
-_TB_DIR = BASE_DIR / "src-tender_break"
-if str(_TB_DIR) not in sys.path:
-    sys.path.insert(0, str(_TB_DIR))
+    from BE.src.tender_break.config import (
+        LOCATION_START_COL, IMPORTANT_CASHEET_DATA_COL, FILENAME_TO_MASTER_NAME, load_config as load_tender_config, save_config as save_tender_config)
 
-# Avoid name collision with the config we already imported
-_tb_config = importlib.import_module("config")
-FILENAME_TO_MASTER_NAME = _tb_config.FILENAME_TO_MASTER_NAME
-LOCATION_START_COL = _tb_config.LOCATION_START_COL
-IMPORTANT_CASHEET_DATA_COL = _tb_config.IMPORTANT_CASHEET_DATA_COL
 
 # ── Color Palette ──────────────────────────────────────────────────────────
 PURPLE = "#6C5CE7"
@@ -54,7 +47,7 @@ FONT = "Arial"
 #  MAIN CLASS
 # ═══════════════════════════════════════════════════════════════════════════
 
-class CashSheetAutofillUI(ctk.CTkFrame):
+class AutoFillCenter(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color=BG, corner_radius=0)
 
@@ -152,6 +145,12 @@ class CashSheetAutofillUI(ctk.CTkFrame):
             run_label="🚀  Run Cash Sheet Autofill",
             fill_map=FILL_COL_MAP,
             check_map=CHECKING_COL_MAP,
+            tender_maps=[
+                ("📄 Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS),
+                ("📄 Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS),
+                ("📋 Cash Sheet Tenders (Defaults)",
+                 "Tender Key", "Default Value", CASHEET_TENDERS),
+            ],
         )
 
         # Tender Breakdown tab
@@ -178,7 +177,8 @@ class CashSheetAutofillUI(ctk.CTkFrame):
     # ══════════════════════════════════════════════════════════════════════
     def _build_autofill_page(self, page_key, folder1_label, folder2_label,
                              folder2_is_file, run_label,
-                             fill_map, check_map, extra_configs=None):
+                             fill_map, check_map,
+                             extra_configs=None, tender_maps=None):
         page = ctk.CTkScrollableFrame(
             self, fg_color=BG, corner_radius=0,
             scrollbar_button_color="#D1D1D6",
@@ -215,8 +215,8 @@ class CashSheetAutofillUI(ctk.CTkFrame):
 
         ctk.CTkLabel(dframe, text="📅 Date:",
                      font=ctk.CTkFont(family=FONT, size=13),
-                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
-                                               padx=(0, 12))
+                     text_color=TEXT_SEC, ).grid(row=0, column=0, sticky="w",
+                                                 padx=(0, 12))
         de = CTkDateEntry(
             dframe, height=38, corner_radius=10,
             border_color=BORDER, border_width=1, fg_color=BG,
@@ -276,7 +276,35 @@ class CashSheetAutofillUI(ctk.CTkFrame):
                 setattr(self, f"{page_key}_chk_tbl", container_c)
                 self._refresh_kv_table(container_c, check_map)
 
-        # ── Extra config cards (Tender) ────────────────────────────────
+        # ── Tender mapping cards (Cash Sheet) ──────────────────────────
+        if tender_maps:
+            for t_idx, (heading, key_label, val_label, data) in enumerate(tender_maps):
+                tc = _Card(page)
+                tc.grid(row=grid_row, column=0, sticky="ew",
+                        padx=24, pady=(0, 12))
+                grid_row += 1
+                wrap_t = ctk.CTkFrame(tc, fg_color="transparent")
+                wrap_t.pack(fill="x", padx=20, pady=16)
+
+                hdr_t = ctk.CTkFrame(wrap_t, fg_color="transparent")
+                hdr_t.pack(fill="x", pady=(0, 8))
+                ctk.CTkLabel(hdr_t, text=heading,
+                             font=ctk.CTkFont(family=FONT, size=15,
+                                              weight="bold"),
+                             text_color=TEXT).pack(side="left")
+
+                tbl_attr = f"{page_key}_tender_{t_idx}"
+                _add_button(hdr_t, lambda d=data, a=tbl_attr,
+                            kl=key_label, vl=val_label:
+                            self._add_tender(d, a, kl, vl))
+
+                container_t = ctk.CTkFrame(wrap_t, fg_color="transparent")
+                container_t.pack(fill="x")
+                setattr(self, tbl_attr, container_t)
+                self._refresh_tender_table(container_t, data,
+                                           key_label, val_label)
+
+        # ── Extra config cards (Tender Breakdown) ──────────────────────
         if extra_configs:
             for idx, (heading, data) in enumerate(extra_configs):
                 ec = _Card(page)
@@ -295,7 +323,7 @@ class CashSheetAutofillUI(ctk.CTkFrame):
 
                 if isinstance(data, dict) and data and isinstance(
                         next(iter(data.values())), list):
-                    _filename_mapping_table(wrap, data)
+                    _filename_mapping_table(wrap, data, self)
                 elif isinstance(data, dict):
                     tbl_attr = f"{page_key}_extra_{idx}"
                     _add_button(hdr_e, lambda d=data,
@@ -533,6 +561,60 @@ class CashSheetAutofillUI(ctk.CTkFrame):
                 cursor="hand2",
             ).grid(row=0, column=3, padx=(2, 12))
 
+    def _refresh_tender_table(self, container, mapping,
+                              key_label="Key", val_label="Value"):
+        """Render a key→value table with custom column headers."""
+        for w in container.winfo_children():
+            w.destroy()
+
+        tbl = ctk.CTkFrame(container, fg_color=BG, corner_radius=10)
+        tbl.pack(fill="x")
+
+        hr = ctk.CTkFrame(tbl, fg_color="transparent")
+        hr.pack(fill="x", padx=14, pady=(10, 4))
+        hr.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(hr, text=key_label,
+                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                     text_color=TEXT_MUTED).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(hr, text=val_label,
+                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                     text_color=TEXT_MUTED).grid(row=0, column=1, sticky="e",
+                                                 padx=(0, 80))
+
+        for i, (k, v) in enumerate(mapping.items()):
+            r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
+                             corner_radius=4, height=32)
+            r.pack(fill="x", padx=8, pady=1)
+            r.pack_propagate(False)
+            r.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(r, text=str(k),
+                         font=ctk.CTkFont(family=FONT, size=12),
+                         text_color=TEXT).grid(row=0, column=0, sticky="w",
+                                               padx=12)
+            ctk.CTkLabel(r, text=str(v),
+                         font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
+                         text_color=PURPLE).grid(row=0, column=1, sticky="e",
+                                                 padx=12)
+            ctk.CTkButton(
+                r, text="✏️", width=30, height=24, corner_radius=6,
+                fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
+                font=ctk.CTkFont(size=11),
+                command=lambda key=k, m=mapping, c=container,
+                kl=key_label, vl=val_label: self._edit_tender_row(
+                    m, key, c, kl, vl),
+                cursor="hand2",
+            ).grid(row=0, column=2, padx=(4, 2))
+            ctk.CTkButton(
+                r, text="🗑", width=30, height=24, corner_radius=6,
+                fg_color=RED_BG, text_color=RED, hover_color="#FFCCC9",
+                font=ctk.CTkFont(size=11),
+                command=lambda key=k, m=mapping, c=container,
+                kl=key_label, vl=val_label: self._del_tender_row(
+                    m, key, c, kl, vl),
+                cursor="hand2",
+            ).grid(row=0, column=3, padx=(2, 12))
+
     # ══════════════════════════════════════════════════════════════════════
     #  DIALOG + CRUD OPERATIONS
     # ══════════════════════════════════════════════════════════════════════
@@ -638,6 +720,52 @@ class CashSheetAutofillUI(ctk.CTkFrame):
             mapping.pop(key, None)
             self._refresh_kv_table(container, mapping)
 
+    # -- Tender Mapping CRUD --
+    def _add_tender(self, mapping, attr_name,
+                    key_label="Key", val_label="Value"):
+        r = self._input_dialog("Add Entry", [key_label, val_label])
+        if r and r[key_label]:
+            new_val = r[val_label].strip()
+            try:
+                new_val = float(new_val) if "." in new_val else int(new_val)
+            except ValueError:
+                pass
+            mapping[r[key_label].strip()] = new_val
+            self._refresh_tender_table(
+                getattr(self, attr_name), mapping, key_label, val_label)
+
+    def _edit_tender_row(self, mapping, key, container,
+                         key_label="Key", val_label="Value"):
+        """Edit a tender mapping row — both key and value."""
+        current_val = mapping[key]
+        r = self._input_dialog(
+            f"Edit: {key}",
+            [key_label, val_label],
+            defaults={key_label: key, val_label: current_val})
+        if r and r[key_label]:
+            new_key = r[key_label].strip()
+            new_val = r[val_label].strip()
+
+            # Try to preserve numeric types
+            try:
+                new_val = float(new_val) if "." in new_val else int(new_val)
+            except ValueError:
+                pass  # keep as string
+
+            # If key changed, remove old and insert new
+            if new_key != key:
+                mapping.pop(key, None)
+            mapping[new_key] = new_val
+            self._refresh_tender_table(container, mapping,
+                                       key_label, val_label)
+
+    def _del_tender_row(self, mapping, key, container,
+                        key_label="Key", val_label="Value"):
+        if messagebox.askyesno("Delete", f"Delete '{key}'?"):
+            mapping.pop(key, None)
+            self._refresh_tender_table(container, mapping,
+                                       key_label, val_label)
+
     def _edit_list(self, lst, container):
         """Edit the entire list as comma-separated values."""
         current = ", ".join(str(x) for x in lst)
@@ -647,20 +775,74 @@ class CashSheetAutofillUI(ctk.CTkFrame):
             defaults={"Column Numbers (comma-separated)": current})
         if r and r["Column Numbers (comma-separated)"]:
             try:
-                new_lst = []
-                for x in r["Column Numbers (comma-separated)"].split(","):
-                    if int(x.strip()) > 0:  # Skip empty entries
-                        # Validate all are integers
-                        new_lst.append(int(x.strip()))
-
-                new_lst = list(set(new_lst))  # Remove duplicates
-                new_lst.sort()
+                new_lst = [
+                    int(x.strip())
+                    for x in r["Column Numbers (comma-separated)"].split(",")
+                    if x.strip() and int(x.strip()) > 0
+                ]
+                new_lst = sorted(set(new_lst))
             except ValueError:
                 self._warn("Please enter valid integers separated by commas.")
                 return
             lst.clear()
             lst.extend(new_lst)
             _badge_list(container, new_lst)
+
+    def _edit_filename_mapping(self, mapping, fname, master, container):
+        """Edit a filename mapping entry (all 3 columns)."""
+        current = mapping[fname]
+        # Find the entry with this master
+        for entry in current:
+            if master in entry:
+                search_keys = entry[master]
+                break
+        else:
+            return
+
+        # Format current search keys value
+        if isinstance(search_keys, list):
+            current_keys = ", ".join(search_keys)
+        else:
+            current_keys = str(search_keys)
+
+        r = self._input_dialog(
+            f"Edit Mapping",
+            ["Filename Keyword", "Master Name",
+                "Search Keys (comma-separated)"],
+            defaults={
+                "Filename Keyword": fname,
+                "Master Name": master,
+                "Search Keys (comma-separated)": current_keys
+            })
+
+        if r and r["Filename Keyword"] and r["Master Name"]:
+            new_fname = r["Filename Keyword"].strip().lower()
+            new_master = r["Master Name"].strip().lower()
+            new_keys_str = r["Search Keys (comma-separated)"].strip()
+
+            # Parse search keys as list if contains comma, else single string
+            if "," in new_keys_str:
+                new_keys = [k.strip()
+                            for k in new_keys_str.split(",") if k.strip()]
+            else:
+                new_keys = new_keys_str
+
+            # Remove old entry
+            for entry in mapping[fname]:
+                if master in entry:
+                    mapping[fname].remove(entry)
+                    break
+
+            # If old filename list is now empty, remove it
+            if not mapping[fname]:
+                del mapping[fname]
+
+            # Add new entry
+            if new_fname not in mapping:
+                mapping[new_fname] = []
+            mapping[new_fname].append({new_master: new_keys})
+
+            _render_filename_table(container, mapping, self)
     # ══════════════════════════════════════════════════════════════════════
     #  RUN AUTOFILL
     # ══════════════════════════════════════════════════════════════════════
@@ -749,46 +931,67 @@ def _badge_list(parent, items):
                      text_color=PURPLE).pack(padx=4, pady=4)
 
 
-def _filename_mapping_table(parent, mapping):
+def _filename_mapping_table(parent, mapping, autofill_center=None):
+    """Render a table for filename→master→search_keys mappings."""
     tbl = ctk.CTkFrame(parent, fg_color=BG, corner_radius=10)
     tbl.pack(fill="x", pady=(4, 0))
 
+    # Header row
     hr = ctk.CTkFrame(tbl, fg_color="transparent")
     hr.pack(fill="x", padx=14, pady=(10, 4))
-    hr.grid_columnconfigure(0, weight=1)
-    hr.grid_columnconfigure(1, weight=1)
-    ctk.CTkLabel(hr, text="Filename Keyword",
-                 font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
-                 text_color=TEXT_MUTED).grid(row=0, column=0, sticky="w")
-    ctk.CTkLabel(hr, text="Master Name → Search Key",
-                 font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
-                 text_color=TEXT_MUTED).grid(row=0, column=1, sticky="w",
-                                             padx=(20, 0))
+    hr.grid_columnconfigure((0, 1, 2), weight=1)
+    headers = [("Filename Keyword", 0), ("Master Name", 1), ("Search Keys", 2)]
+    for text, col in headers:
+        ctk.CTkLabel(hr, text=text,
+                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                     text_color=TEXT_MUTED).grid(
+            row=0, column=col, sticky="w", padx=(20 if col else 0, 0))
 
-    for i, (fname, entries) in enumerate(mapping.items()):
+    # Data rows
+    row_idx = 0
+    for fname, entries in mapping.items():
         for entry in entries:
             for master, search_key in entry.items():
-                r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
+                row_bg = CARD if row_idx % 2 == 0 else BG
+                r = ctk.CTkFrame(tbl, fg_color=row_bg,
                                  corner_radius=4, height=34)
                 r.pack(fill="x", padx=8, pady=1)
                 r.pack_propagate(False)
-                r.grid_columnconfigure(0, weight=1)
-                r.grid_columnconfigure(1, weight=1)
+                r.grid_columnconfigure((0, 1, 2), weight=1)
 
+                # Filename
                 ctk.CTkLabel(r, text=fname.title(),
                              font=ctk.CTkFont(family=FONT, size=12),
-                             text_color=TEXT).grid(row=0, column=0, sticky="w",
-                                                   padx=12)
-                val = str(search_key) if isinstance(search_key, str) \
-                    else ", ".join(search_key)
-                ctk.CTkLabel(
-                    r, text=f"{master.title()} → {val}",
-                    font=ctk.CTkFont(family=FONT, size=12),
-                    text_color=PURPLE
-                ).grid(row=0, column=1, sticky="w", padx=(20, 12))
+                             text_color=TEXT).grid(row=0, column=0, sticky="w", padx=12)
+
+                # Master name
+                ctk.CTkLabel(r, text=master.title(),
+                             font=ctk.CTkFont(family=FONT, size=12),
+                             text_color=PURPLE).grid(row=0, column=1, sticky="w", padx=(20, 12))
+
+                # Search keys
+                val = search_key if isinstance(
+                    search_key, str) else ", ".join(search_key)
+                ctk.CTkLabel(r, text=val,
+                             font=ctk.CTkFont(family=FONT, size=12),
+                             text_color=TEXT_SEC).grid(row=0, column=2, sticky="w", padx=(20, 0))
+
+                # Edit button (only if autofill_center provided)
+                if autofill_center:
+                    ctk.CTkButton(
+                        r, text="✏️", width=30, height=26, corner_radius=6,
+                        fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
+                        font=ctk.CTkFont(size=12),
+                        command=lambda f=fname, m=master: autofill_center._edit_filename_mapping(
+                            mapping, f, m, parent),
+                        cursor="hand2",
+                    ).grid(row=0, column=3, padx=(0, 12))
+
+                row_idx += 1
 
 
-def _render_filename_table(container, mapping):
+def _render_filename_table(container, mapping, autofill_center=None):
+    """Clear and re-render the filename mapping table."""
     for w in container.winfo_children():
         w.destroy()
-    _filename_mapping_table(container, mapping)
+    _filename_mapping_table(container, mapping, autofill_center)

@@ -4,7 +4,7 @@ from components.taskManager import TaskManager
 from components.sidebar import SideBar
 from components.summaryPanel import SummaryPanel
 from components.resizablePane import ResizablePane
-from components.cash_sheet_autofill_UI import CashSheetAutofillUI
+from components.autofill_center import AutoFillCenter
 
 
 class Dashboard(ctk.CTkFrame):
@@ -111,7 +111,7 @@ class Dashboard(ctk.CTkFrame):
         """Create the unified autofill page (tabbed: cash sheet / tender / config)"""
         self.cash_sheet_content = ctk.CTkFrame(self, fg_color="#F5F5F7")
 
-        self.autofill_ui = CashSheetAutofillUI(self.cash_sheet_content)
+        self.autofill_ui = AutoFillCenter(self.cash_sheet_content)
         self.autofill_ui.pack(fill="both", expand=True, padx=20, pady=20)
 
     def _create_tender_breakdown_content(self):
