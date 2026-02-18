@@ -24,25 +24,25 @@
   },
 
   "grubhub_venue_map": {
-    "City Edge": ["HUB", 49],
-    "Crimson View": ["cv casheet", 49],
-    "Einstein Bros. Bagels": ["Satellite", 49],
-    "Epicenter Cafe": ["Epicenter", 49],
-    "Hive Express": ["HECS", 49],
-    "Honors Market": ["Honors", 49],
-    "Seagull Sunrise": ["CRSS", 49],
-    "Shake Smart - Student Life Center": ["Shake Smart", 49],
-    "Shake Smart - Union": ["UnionShakeSmart", 49],
-    "Urban Bytes": ["KV", 49],
-    "Absurd Bird": ["gardner", 49],
-    "Cilantree": ["csfs", 49],
-    "Crossroads Bistro": ["csfs", 49],
-    "Cupbop": ["gardner", 49],
-    "El Tonga Taco": ["csfs", 49],
-    "Iron Waffle": ["gardner", 49],
-    "Miller Cafe": ["Lassonde", 49],
-    "Panda Express": ["Panda", 49],
-    "United Table": ["PHC", 49]
+    "City Edge": ["HUB", "grubhub"],
+    "Crimson View": ["cv casheet", "grubhub"],
+    "Einstein Bros. Bagels": ["Satellite", "grubhub"],
+    "Epicenter Cafe": ["Epicenter", "grubhub"],
+    "Hive Express": ["HECS", "grubhub"],
+    "Honors Market": ["Honors", "grubhub"],
+    "Seagull Sunrise": ["CRSS", "grubhub"],
+    "Shake Smart - Student Life Center": ["Shake Smart", "grubhub"],
+    "Shake Smart - Union": ["UnionShakeSmart", "grubhub"],
+    "Urban Bytes": ["KV", "grubhub"],
+    "Absurd Bird": ["gardner", "grubhub"],
+    "Cilantree": ["csfs", "grubhub"],
+    "Crossroads Bistro": ["csfs", "grubhub"],
+    "Cupbop": ["gardner", "grubhub"],
+    "El Tonga Taco": ["csfs", "grubhub"],
+    "Iron Waffle": ["gardner", "grubhub"],
+    "Miller Cafe": ["Lassonde", "grubhub"],
+    "Panda Express": ["panda", "grubhub"],
+    "United Table": ["csfs", "grubhub"]
   },
 
   "fill_col_map": {
@@ -132,5 +132,7 @@
     "mc": 0.0,
     "visa": 0.0
   },
-  "summary_data_map": {}
+  "summary_data_map": {},
+  "reports_folder": "C:\\Users\\admin\\OneDrive\\Nam career\\Chartwells\\chartwells_automation\\reports",
+  "cash_sheets_folder": "C:\\Users\\admin\\OneDrive\\Nam career\\Chartwells\\chartwells_automation\\cash sheets"
 }

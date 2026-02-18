@@ -49,14 +49,16 @@ class ExcelAutofiller:
         try:
             self.wb = load_workbook(self.xl_path)
 
-            # Check if the worksheet exists
-            if self.week_day not in self.wb.sheetnames:
+            # Check if the worksheet exists (case-insensitive)
+            sheet_map = {s.lower(): s for s in self.wb.sheetnames}
+            actual_name = sheet_map.get(self.week_day.lower())
+            if actual_name is None:
                 print(f"  ❌ Worksheet '{self.week_day}' not found in workbook")
                 print(
                     f"     Available sheets: {', '.join(self.wb.sheetnames)}")
                 return False
 
-            self.ws = self.wb[self.week_day]
+            self.ws = self.wb[actual_name]
             return True
 
         except FileNotFoundError:
@@ -185,10 +187,10 @@ class ExcelAutofiller:
 
                 col = FILL_COL_MAP[tender_name]
 
-                # Only fill non-zero amounts; clear zero amounts
-                if amount > 0:
+                # Write all non-zero amounts (including negatives); clear zeros
+                if amount != 0:
                     self.ws.cell(self.row, col).value = amount
-                elif amount == 0:
+                else:
                     self.ws.cell(self.row, col).value = None
 
             # Report any unmatched tenders
@@ -222,7 +224,9 @@ class ExcelAutofiller:
 
             # Step 2: Reload workbook with calculated formulas (data_only=True)
             self.wb = load_workbook(self.xl_path, data_only=True)
-            self.ws = self.wb[self.week_day]
+            sheet_map = {s.lower(): s for s in self.wb.sheetnames}
+            actual_name = sheet_map.get(self.week_day.lower(), self.week_day)
+            self.ws = self.wb[actual_name]
 
             # Step 3: Validate tender calculations
             is_correct = self.checking_tenders()
