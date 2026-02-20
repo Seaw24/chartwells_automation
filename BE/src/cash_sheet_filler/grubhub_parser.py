@@ -8,7 +8,10 @@ Each row has dollar amounts per payment method.
 
 import csv
 from datetime import datetime
-from config import GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP, CASHEET_TENDERS
+try:
+    from .config import GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP, CASHEET_TENDERS
+except ImportError:
+    from config import GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP, CASHEET_TENDERS
 
 
 class GrubhubParser:

@@ -10,17 +10,30 @@ from datetime import date, timedelta
 from dateutil.parser import parse as dateutil_parse
 from openpyxl import load_workbook
 
-from infor_parser import InforParser
-from tavlo_parser import TavloParser
-from grubhub_parser import GrubhubParser
-from excel_autofiller import ExcelAutofiller
-from config import (
-    REPORTS_CASHSHEET_MAP,
-    GRUBHUB_VENUE_MAP,
-    FILL_COL_MAP,
-    REPORTS_FOLDER,
-    CASH_SHEET_FOLDER,
-)
+try:
+    from .infor_parser import InforParser
+    from .tavlo_parser import TavloParser
+    from .grubhub_parser import GrubhubParser
+    from .excel_autofiller import ExcelAutofiller
+    from .config import (
+        REPORTS_CASHSHEET_MAP,
+        GRUBHUB_VENUE_MAP,
+        FILL_COL_MAP,
+        REPORTS_FOLDER,
+        CASH_SHEET_FOLDER,
+    )
+except ImportError:
+    from infor_parser import InforParser
+    from tavlo_parser import TavloParser
+    from grubhub_parser import GrubhubParser
+    from excel_autofiller import ExcelAutofiller
+    from config import (
+        REPORTS_CASHSHEET_MAP,
+        GRUBHUB_VENUE_MAP,
+        FILL_COL_MAP,
+        REPORTS_FOLDER,
+        CASH_SHEET_FOLDER,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -30,42 +43,65 @@ from config import (
 class ProcessingTracker:
     """Tracks successes, failures, and warnings across all reports."""
 
-    def __init__(self):
+    def __init__(self, on_event=None):
+        """
+        Args:
+            on_event: Optional callback(type, message) where type is
+                      'info', 'success', 'warning', 'error', or 'progress'.
+        """
         self.successful = []
         self.failed = []
         self.warnings = []
+        self._on_event = on_event
+
+    def _emit(self, kind, msg):
+        """Send an event to the UI callback (if registered)."""
+        if self._on_event:
+            try:
+                self._on_event(kind, msg)
+            except Exception:
+                pass
+        print(msg)
+
+    def log(self, msg):
+        self._emit("info", msg)
 
     def add_success(self, location, filename, warning=None):
         self.successful.append({"location": location, "filename": filename})
+        self._emit("success", f"  ✓ {location}")
         if warning:
             self.warnings.append(
                 {"location": location, "filename": filename, "msg": warning})
+            self._emit("warning", f"  ⚠ {location}: {warning}")
 
     def add_failure(self, location, filename, message):
         self.failed.append(
             {"location": location, "filename": filename, "msg": message})
+        self._emit("error", f"  ✗ {location}: {message}")
 
     def print_summary(self):
         total = len(self.successful) + len(self.failed)
-        print("\n" + "=" * 70)
-        print("PROCESSING SUMMARY")
-        print(f"  Successful : {len(self.successful)}")
-        print(f"  Failed     : {len(self.failed)}")
-        print(f"  Warnings   : {len(self.warnings)}")
-        print(f"  Total      : {total}")
+        summary = (
+            f"\nSUMMARY:  {len(self.successful)} succeeded, "
+            f"{len(self.failed)} failed, {len(self.warnings)} warnings  "
+            f"({total} total)"
+        )
+        self._emit("info", "=" * 60)
+        self._emit("info", summary)
 
         if self.warnings:
-            print("\nWARNINGS:")
+            self._emit("info", "\nWARNINGS:")
             for w in self.warnings:
-                print(f"  - {w['location']}: {w['msg']}")
+                self._emit("warning", f"  - {w['location']}: {w['msg']}")
 
         if self.failed:
-            print("\nFAILED:")
+            self._emit("info", "\nFAILED:")
             for f in self.failed:
                 loc = f["location"] or "Unknown"
-                print(f"  - {loc} ({f['filename']}): {f['msg']}")
+                self._emit("error",
+                           f"  - {loc} ({f['filename']}): {f['msg']}")
 
-        print("=" * 70 + "\n")
+        self._emit("info", "=" * 60)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -145,7 +181,7 @@ def process_single_report(report_parser, casheet_dir, weekday,
         tracker:        ProcessingTracker.
         casheet_files:  List of filenames in casheet_dir.
     """
-    print(f"\n--- {report_filename} ---")
+    tracker.log(f"\n--- {report_filename} ---")
 
     # 1. Parse
     if not report_parser.parse():
@@ -153,8 +189,9 @@ def process_single_report(report_parser, casheet_dir, weekday,
         return
 
     data = report_parser.get_data_dict()
-    location = data["location"]
-    print(f"  Location: {location}")
+    location = data["location"].strip() if data and data.get(
+        "location") else "Unknown"
+    tracker.log(f"  Location: {location}")
 
     # 2. Look up cash-sheet mapping
     if location not in REPORTS_CASHSHEET_MAP:
@@ -223,7 +260,7 @@ def process_grubhub(grubhub_path, casheet_dir,
         casheet_files:    List of filenames in casheet_dir.
     """
     grubhub_filename = os.path.basename(grubhub_path)
-    print(f"\n--- Grubhub: {grubhub_filename} ---")
+    tracker.log(f"\n--- Grubhub: {grubhub_filename} ---")
 
     parser = GrubhubParser(grubhub_path)
     if not parser.parse():
@@ -231,7 +268,7 @@ def process_grubhub(grubhub_path, casheet_dir,
         return
 
     if not parser.get_dates():
-        print(f"  No Grubhub data found in file.")
+        tracker.log(f"  No Grubhub data found in file.")
         return
 
     # ── Step 1: Collect ALL data grouped by casheet_path ──────────────
@@ -243,7 +280,7 @@ def process_grubhub(grubhub_path, casheet_dir,
         if not weekday:
             continue
         venues = parser.get_venues(date)
-        print(f"\n  Date: {date} ({weekday})  —  {len(venues)} venue(s)")
+        tracker.log(f"\n  Date: {date} ({weekday})  —  {len(venues)} venue(s)")
 
         # Group venues by (casheet_path, location) for this date
         date_groups = {}
@@ -358,7 +395,6 @@ def process_grubhub(grubhub_path, casheet_dir,
                     else:
                         ws.cell(target_row, col).value = None
 
-                print(f"  ✓ {label} → row {target_row}")
                 tracker.add_success(label, casheet_path)
 
             except Exception as e:
@@ -368,12 +404,13 @@ def process_grubhub(grubhub_path, casheet_dir,
         # Save once for the entire workbook
         try:
             wb.save(casheet_path)
-            print(f"  💾 Saved: {os.path.basename(casheet_path)}")
+            tracker.log(f"  💾 Saved: {os.path.basename(casheet_path)}")
         except PermissionError:
-            print(
-                f"  ❌ Cannot save {os.path.basename(casheet_path)}: file is open")
+            tracker.add_failure(os.path.basename(casheet_path), casheet_path,
+                                "Cannot save: file is open in another program")
         except Exception as e:
-            print(f"  ❌ Save error for {os.path.basename(casheet_path)}: {e}")
+            tracker.add_failure(os.path.basename(casheet_path), casheet_path,
+                                f"Save error: {e}")
         finally:
             wb.close()
 
@@ -381,38 +418,47 @@ def process_grubhub(grubhub_path, casheet_dir,
     unmapped_v = parser.get_unmapped_venues()
     unmapped_t = parser.get_unmapped_tenders()
     if unmapped_v:
-        print(f"\n  Unmapped venues : {unmapped_v}")
+        tracker.log(f"\n  Unmapped venues : {unmapped_v}")
     if unmapped_t:
-        print(f"  Unmapped tenders: {unmapped_t}")
+        tracker.log(f"  Unmapped tenders: {unmapped_t}")
 
 
 # ═══════════════════════════════════════════════════════════════
 #  MAIN EXECUTE
 # ═══════════════════════════════════════════════════════════════
 
-def execute(reports_dir, casheet_dir, weekday, report_date):
+def execute(reports_dir, casheet_dir, report_date, on_event=None):
     """
     Process all reports in *reports_dir* and fill cash sheets in *casheet_dir*.
+
+    Args:
+        reports_dir:  Folder containing report files.
+        casheet_dir:  Folder containing cash-sheet Excel files.
+        report_date:  Date string (e.g. MM/DD/YYYY).
+        on_event:     Optional callback(type, message) for UI progress.
 
     File-type detection:
         .csv starting with "Operations Report" → Infor
         .csv starting with "SalesbyVenue"       → Grubhub
         .xls                                    → Tavlo
     """
-    tracker = ProcessingTracker()
-
+    tracker = ProcessingTracker(on_event=on_event)
+    weekday = get_weekday_name(report_date)
+    if not weekday:
+        tracker.log("Aborting: could not parse report date.")
+        return tracker
     # ── Gather files ──────────────────────────────────────────────────
     try:
         all_report_files = os.listdir(reports_dir)
     except (FileNotFoundError, PermissionError) as e:
-        print(f"  Cannot access reports folder: {e}")
-        return
+        tracker.log(f"Cannot access reports folder: {e}")
+        return tracker
 
     try:
         casheet_files = os.listdir(casheet_dir)
     except (FileNotFoundError, PermissionError) as e:
-        print(f"  Cannot access cash-sheets folder: {e}")
-        return
+        tracker.log(f"Cannot access cash-sheets folder: {e}")
+        return tracker
 
     infor_files = []
     tavlo_files = []
@@ -429,11 +475,11 @@ def execute(reports_dir, casheet_dir, weekday, report_date):
 
     total = len(infor_files) + len(tavlo_files) + len(grubhub_files)
     if total == 0:
-        print("  No report files found.")
-        return
+        tracker.log("No report files found.")
+        return tracker
 
-    print(f"\nFound {len(infor_files)} Infor, {len(tavlo_files)} Tavlo, "
-          f"{len(grubhub_files)} Grubhub file(s)")
+    tracker.log(f"Found {len(infor_files)} Infor, {len(tavlo_files)} Tavlo, "
+                f"{len(grubhub_files)} Grubhub file(s)")
 
     # ── Process Infor (CSV, one venue per file) ───────────────────────
     for name in infor_files:
@@ -464,6 +510,7 @@ def execute(reports_dir, casheet_dir, weekday, report_date):
 
     # ── Summary ───────────────────────────────────────────────────────
     tracker.print_summary()
+    return tracker
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -489,7 +536,7 @@ if __name__ == "__main__":
             yesterday = date.today() - timedelta(days=1)
             report_date = yesterday.strftime("%m/%d/%Y")
         weekday = get_weekday_name(report_date)
-        if weekday:
-            print(f"  {report_date} is a {weekday}")
 
-    execute(reports_dir, casheet_dir, weekday=weekday, report_date=report_date)
+    tracker = execute(reports_dir, casheet_dir, report_date=report_date)
+    if tracker:
+        tracker.print_summary()
