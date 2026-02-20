@@ -1,26 +1,40 @@
 """
-Cash Sheet Autofill UI - Tabbed Layout
-Three tabs: Cash Sheet Autofill | Tender Breakdown Autofill | Configuration
+AutoFill Center - Cash Sheet & Tender Breakdown Autofill UI
+Compact, lightweight version with inline result log.
 """
-import importlib
 import sys
 from pathlib import Path
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from datetime import datetime, timedelta
-from ctkdateentry import CTkDateEntry
 
-# ── Path setup ─────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parents[2]
-if str(BASE_DIR) not in sys.path:
-    sys.path.append(str(BASE_DIR))
+# ── Path setup (must run before project imports) ───────────────────────────
+_BASE_DIR = Path(__file__).resolve().parents[2]
+if str(_BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(_BASE_DIR))
 
-    from BE.src.cash_sheet_filler.config import (
-        REPORTS_CASHSHEET_MAP, FILL_COL_MAP, CHECKING_COL_MAP, INFOR_TENDERS, TAVLO_TENDERS, CASHEET_TENDERS, load_config as load_cash_sheet_config, save_config as save_cash_sheet_config)
+import customtkinter as ctk  # noqa: E402
+from tkinter import filedialog, messagebox  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+import threading  # noqa: E402
 
+from BE.src.cash_sheet_filler.main import execute  # noqa: E402
+from BE.src.cash_sheet_filler.config import (  # noqa: E402
+    REPORTS_CASHSHEET_MAP, FILL_COL_MAP, CHECKING_COL_MAP,
+    INFOR_TENDERS, TAVLO_TENDERS, CASHEET_TENDERS,
+    load_config as load_cash_sheet_config,
+    save_config as save_cash_sheet_config,
+)
+
+
+# Try to import tender config (may not exist yet)
+try:
     from BE.src.tender_break.config import (
-        LOCATION_START_COL, IMPORTANT_CASHEET_DATA_COL, FILENAME_TO_MASTER_NAME, load_config as load_tender_config, save_config as save_tender_config)
-
+        LOCATION_START_COL, IMPORTANT_CASHEET_DATA_COL,
+        FILENAME_TO_MASTER_NAME,
+        load_config as load_tender_config,
+        save_config as save_tender_config,
+    )
+    _HAS_TENDER = True
+except Exception:
+    _HAS_TENDER = False
 
 # ── Color Palette ──────────────────────────────────────────────────────────
 PURPLE = "#6C5CE7"
@@ -39,311 +53,275 @@ RED = "#FF3B30"
 RED_BG = "#FFE5E3"
 ORANGE = "#FF9500"
 ORANGE_BG = "#FFF3E0"
-
 FONT = "Arial"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  MAIN CLASS
 # ═══════════════════════════════════════════════════════════════════════════
-
 class AutoFillCenter(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color=BG, corner_radius=0)
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=0)  # header
-        self.grid_rowconfigure(1, weight=0)  # tab bar
-        self.grid_rowconfigure(2, weight=1)  # content area
+        self.grid_rowconfigure(0, weight=0)   # header
+        self.grid_rowconfigure(1, weight=0)   # tab bar
+        self.grid_rowconfigure(2, weight=1)   # content
 
         self._build_header()
         self._build_tab_bar()
         self._build_pages()
         self._select_tab("cash_sheet")
 
-    # ── Header ─────────────────────────────────────────────────────────────
+    # ── Header ─────────────────────────────────────────────────────────
     def _build_header(self):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
-        hdr.grid(row=0, column=0, sticky="ew", padx=24, pady=(20, 6))
+        hdr.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 4))
 
         left = ctk.CTkFrame(hdr, fg_color="transparent")
         left.pack(side="left")
 
-        icon = ctk.CTkFrame(left, width=42, height=42, corner_radius=12,
+        icon = ctk.CTkFrame(left, width=36, height=36, corner_radius=10,
                             fg_color=PURPLE_LIGHT)
-        icon.pack(side="left", padx=(0, 14))
+        icon.pack(side="left", padx=(0, 10))
         icon.pack_propagate(False)
-        ctk.CTkLabel(icon, text="💰", font=ctk.CTkFont(size=20)).place(
+        ctk.CTkLabel(icon, text="💰", font=ctk.CTkFont(size=16)).place(
             relx=.5, rely=.5, anchor="center")
 
         tf = ctk.CTkFrame(left, fg_color="transparent")
         tf.pack(side="left")
         ctk.CTkLabel(tf, text="Autofill Center",
-                     font=ctk.CTkFont(family=FONT, size=24, weight="bold"),
+                     font=ctk.CTkFont(family=FONT, size=20, weight="bold"),
                      text_color=TEXT).pack(anchor="w")
         ctk.CTkLabel(tf, text="Configure and run automatic data filling",
-                     font=ctk.CTkFont(family=FONT, size=13),
+                     font=ctk.CTkFont(family=FONT, size=11),
                      text_color=TEXT_SEC).pack(anchor="w")
 
-    # ── Tab Bar ────────────────────────────────────────────────────────────
+    # ── Tab Bar ────────────────────────────────────────────────────────
     def _build_tab_bar(self):
-        bar = ctk.CTkFrame(self, fg_color="transparent", height=44)
-        bar.grid(row=1, column=0, sticky="ew", padx=24, pady=(6, 0))
+        bar = ctk.CTkFrame(self, fg_color="transparent", height=38)
+        bar.grid(row=1, column=0, sticky="ew", padx=20, pady=(4, 0))
 
         self._tab_btns = {}
         self._tab_lines = {}
         tabs = [
-            ("cash_sheet", "💰  Cash Sheet"),
-            ("tender", "📊  Tender Breakdown"),
-            ("config", "⚙️  Configuration"),
+            ("cash_sheet", "💰 Cash Sheet"),
+            ("tender",     "📊 Tender Breakdown"),
+            ("config",     "⚙️ Configuration"),
         ]
         for key, label in tabs:
             wrapper = ctk.CTkFrame(bar, fg_color="transparent")
-            wrapper.pack(side="left", padx=(0, 4))
-
+            wrapper.pack(side="left", padx=(0, 2))
             btn = ctk.CTkButton(
                 wrapper, text=label,
-                font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
+                font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
                 fg_color="transparent", text_color=TEXT_MUTED,
-                hover_color=PURPLE_SUBTLE, height=36, corner_radius=8,
+                hover_color=PURPLE_SUBTLE, height=32, corner_radius=8,
                 command=lambda k=key: self._select_tab(k), cursor="hand2",
             )
             btn.pack(side="top")
-
             line = ctk.CTkFrame(wrapper, height=3, corner_radius=2,
                                 fg_color="transparent")
-            line.pack(fill="x", padx=8)
-
+            line.pack(fill="x", padx=6)
             self._tab_btns[key] = btn
             self._tab_lines[key] = line
 
     def _select_tab(self, key):
         for k in self._tab_btns:
-            if k == key:
-                self._tab_btns[k].configure(text_color=PURPLE,
-                                            fg_color=PURPLE_SUBTLE)
-                self._tab_lines[k].configure(fg_color=PURPLE)
-            else:
-                self._tab_btns[k].configure(text_color=TEXT_MUTED,
-                                            fg_color="transparent")
-                self._tab_lines[k].configure(fg_color="transparent")
-
+            active = (k == key)
+            self._tab_btns[k].configure(
+                text_color=PURPLE if active else TEXT_MUTED,
+                fg_color=PURPLE_SUBTLE if active else "transparent",
+            )
+            self._tab_lines[k].configure(
+                fg_color=PURPLE if active else "transparent",
+            )
         for page in self._pages.values():
             page.grid_forget()
         self._pages[key].grid(row=2, column=0, sticky="nsew")
 
-    # ── Page Builder ───────────────────────────────────────────────────────
+    # ── Pages ──────────────────────────────────────────────────────────
     def _build_pages(self):
         self._pages = {}
-
-        # Cash Sheet tab
-        self._pages["cash_sheet"] = self._build_autofill_page(
-            page_key="cash_sheet",
-            folder1_label="📁 Cash Sheet Folder:",
-            folder2_label="📊 Day Reports Folder:",
-            folder2_is_file=False,
-            run_label="🚀  Run Cash Sheet Autofill",
-            fill_map=FILL_COL_MAP,
-            check_map=CHECKING_COL_MAP,
-            tender_maps=[
-                ("📄 Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS),
-                ("📄 Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS),
-                ("📋 Cash Sheet Tenders (Defaults)",
-                 "Tender Key", "Default Value", CASHEET_TENDERS),
-            ],
-        )
-
-        # Tender Breakdown tab
-        self._pages["tender"] = self._build_autofill_page(
-            page_key="tender",
-            folder1_label="📁 Cash Sheets Folder:",
-            folder2_label="📄 Breakdown File:",
-            folder2_is_file=True,
-            run_label="🚀  Run Tender Breakdown Autofill",
-            fill_map=None,
-            check_map=None,
-            extra_configs=[
-                ("📍 Location Start Columns", LOCATION_START_COL),
-                ("📌 Important Data Columns", IMPORTANT_CASHEET_DATA_COL),
-                ("🗂️ Filename → Master Name", FILENAME_TO_MASTER_NAME),
-            ],
-        )
-
-        # Configuration tab
+        self._pages["cash_sheet"] = self._build_cash_sheet_page()
+        self._pages["tender"] = self._build_tender_page()
         self._pages["config"] = self._build_config_page()
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  AUTOFILL PAGE (reused for Cash Sheet & Tender tabs)
-    # ══════════════════════════════════════════════════════════════════════
-    def _build_autofill_page(self, page_key, folder1_label, folder2_label,
-                             folder2_is_file, run_label,
-                             fill_map, check_map,
-                             extra_configs=None, tender_maps=None):
-        page = ctk.CTkScrollableFrame(
-            self, fg_color=BG, corner_radius=0,
-            scrollbar_button_color="#D1D1D6",
-            scrollbar_button_hover_color="#A1A1A6")
+    # ══════════════════════════════════════════════════════════════
+    #  CASH SHEET PAGE
+    # ══════════════════════════════════════════════════════════════
+    def _build_cash_sheet_page(self):
+        page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         page.grid_columnconfigure(0, weight=1)
+        page.grid_rowconfigure(0, weight=0)  # settings card
+        page.grid_rowconfigure(1, weight=1)  # result log
 
-        setattr(self, f"{page_key}_folder1", None)
-        setattr(self, f"{page_key}_folder2", None)
-        grid_row = 0
+        # ── Settings card ──────────────────────────────────────────
+        card = _Card(page)
+        card.grid(row=0, column=0, sticky="ew", padx=20, pady=(12, 8))
 
-        # ── Settings card ──────────────────────────────────────────────
-        settings = _Card(page)
-        settings.grid(row=grid_row, column=0, sticky="ew",
-                      padx=24, pady=(16, 12))
-        grid_row += 1
-
-        inner = ctk.CTkFrame(settings, fg_color="transparent")
-        inner.pack(fill="x", padx=20, pady=16)
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
         inner.grid_columnconfigure(1, weight=1)
 
         _section_label(inner, "⚙️ Settings", grid_pos=(0, 0, 2))
 
-        # Folder / file rows
-        self._folder_row(inner, 1, folder1_label, page_key, "folder1")
-        if folder2_is_file:
-            self._file_row(inner, 2, folder2_label, page_key, "folder2")
-        else:
-            self._folder_row(inner, 2, folder2_label, page_key, "folder2")
+        # Cash Sheet folder
+        self._cs_folder1_entry = self._folder_row(
+            inner, 1, "📁 Cash Sheet Folder:")
 
-        # Date picker
-        dframe = ctk.CTkFrame(inner, fg_color="transparent")
-        dframe.grid(row=3, column=0, columnspan=2, sticky="ew", pady=8)
-        dframe.grid_columnconfigure(1, weight=1)
+        # Reports folder
+        self._cs_folder2_entry = self._folder_row(
+            inner, 2, "📊 Day Reports Folder:")
 
-        ctk.CTkLabel(dframe, text="📅 Date:",
-                     font=ctk.CTkFont(family=FONT, size=13),
-                     text_color=TEXT_SEC, ).grid(row=0, column=0, sticky="w",
-                                                 padx=(0, 12))
-        de = CTkDateEntry(
-            dframe, height=38, corner_radius=10,
-            border_color=BORDER, border_width=1, fg_color=BG,
-            font=ctk.CTkFont(size=13), text_color=TEXT)
-        de.grid(row=0, column=1, sticky="ew")
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        de.set_date(yesterday)
-        setattr(self, f"{page_key}_date", de)
+        # Date picker - simple entry with default to yesterday
+        df = ctk.CTkFrame(inner, fg_color="transparent")
+        df.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
+        df.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(df, text="📅 Date:",
+                     font=ctk.CTkFont(family=FONT, size=12),
+                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
+                                               padx=(0, 10))
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%Y")
+        self._cs_date_entry = ctk.CTkEntry(
+            df, height=34, corner_radius=8, border_color=BORDER,
+            border_width=1, fg_color=BG,
+            font=ctk.CTkFont(size=12), text_color=TEXT)
+        self._cs_date_entry.insert(0, yesterday)
+        self._cs_date_entry.grid(row=0, column=1, sticky="ew")
 
         # Run button
         bf = ctk.CTkFrame(inner, fg_color="transparent")
-        bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        ctk.CTkButton(
-            bf, text=run_label,
-            font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
+        bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self._cs_run_btn = ctk.CTkButton(
+            bf, text="🚀  Run Cash Sheet Autofill",
+            font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
             fg_color=PURPLE, hover_color=PURPLE_DARK,
-            height=46, corner_radius=12,
-            command=lambda: self._run_autofill(page_key), cursor="hand2",
-        ).pack(fill="x")
+            height=40, corner_radius=10,
+            command=self._run_cash_sheet_autofill, cursor="hand2",
+        )
+        self._cs_run_btn.pack(fill="x")
 
-        # ── Column mapping cards (Cash Sheet only) ─────────────────────
-        if fill_map:
-            mc = _Card(page)
-            mc.grid(row=grid_row, column=0, sticky="ew", padx=24, pady=(0, 12))
-            grid_row += 1
-            wrap = ctk.CTkFrame(mc, fg_color="transparent")
-            wrap.pack(fill="x", padx=20, pady=16)
+        # ── Result Log ─────────────────────────────────────────────
+        log_card = _Card(page)
+        log_card.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
 
-            hdr_f = ctk.CTkFrame(wrap, fg_color="transparent")
-            hdr_f.pack(fill="x", pady=(0, 8))
-            ctk.CTkLabel(hdr_f, text="📋 Fill Column Mappings",
-                         font=ctk.CTkFont(family=FONT, size=15, weight="bold"),
-                         text_color=TEXT).pack(side="left")
-            _add_button(hdr_f, lambda: self._add_kv(
-                fill_map, f"{page_key}_fill_tbl"))
+        log_header = ctk.CTkFrame(log_card, fg_color="transparent")
+        log_header.pack(fill="x", padx=16, pady=(10, 4))
 
-            container_f = ctk.CTkFrame(wrap, fg_color="transparent")
-            container_f.pack(fill="x")
-            setattr(self, f"{page_key}_fill_tbl", container_f)
-            self._refresh_kv_table(container_f, fill_map)
+        ctk.CTkLabel(log_header, text="📋 Result Log",
+                     font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
+                     text_color=TEXT).pack(side="left")
 
-            if check_map:
-                ctk.CTkFrame(wrap, fg_color=BORDER, height=1).pack(
-                    fill="x", pady=(14, 10))
+        self._cs_clear_btn = ctk.CTkButton(
+            log_header, text="Clear", width=50, height=24, corner_radius=6,
+            fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
+            font=ctk.CTkFont(family=FONT, size=11),
+            command=lambda: self._clear_log(self._cs_log))
+        self._cs_clear_btn.pack(side="right")
 
-                hdr_c = ctk.CTkFrame(wrap, fg_color="transparent")
-                hdr_c.pack(fill="x", pady=(0, 8))
-                ctk.CTkLabel(hdr_c, text="✅ Checking Column Mappings",
-                             font=ctk.CTkFont(family=FONT, size=15,
-                                              weight="bold"),
-                             text_color=TEXT).pack(side="left")
-                _add_button(hdr_c, lambda: self._add_kv(
-                    check_map, f"{page_key}_chk_tbl"))
+        # Status bar
+        self._cs_status = ctk.CTkLabel(
+            log_header, text="Ready",
+            font=ctk.CTkFont(family=FONT, size=11),
+            text_color=TEXT_MUTED)
+        self._cs_status.pack(side="right", padx=(0, 10))
 
-                container_c = ctk.CTkFrame(wrap, fg_color="transparent")
-                container_c.pack(fill="x")
-                setattr(self, f"{page_key}_chk_tbl", container_c)
-                self._refresh_kv_table(container_c, check_map)
-
-        # ── Tender mapping cards (Cash Sheet) ──────────────────────────
-        if tender_maps:
-            for t_idx, (heading, key_label, val_label, data) in enumerate(tender_maps):
-                tc = _Card(page)
-                tc.grid(row=grid_row, column=0, sticky="ew",
-                        padx=24, pady=(0, 12))
-                grid_row += 1
-                wrap_t = ctk.CTkFrame(tc, fg_color="transparent")
-                wrap_t.pack(fill="x", padx=20, pady=16)
-
-                hdr_t = ctk.CTkFrame(wrap_t, fg_color="transparent")
-                hdr_t.pack(fill="x", pady=(0, 8))
-                ctk.CTkLabel(hdr_t, text=heading,
-                             font=ctk.CTkFont(family=FONT, size=15,
-                                              weight="bold"),
-                             text_color=TEXT).pack(side="left")
-
-                tbl_attr = f"{page_key}_tender_{t_idx}"
-                _add_button(hdr_t, lambda d=data, a=tbl_attr,
-                            kl=key_label, vl=val_label:
-                            self._add_tender(d, a, kl, vl))
-
-                container_t = ctk.CTkFrame(wrap_t, fg_color="transparent")
-                container_t.pack(fill="x")
-                setattr(self, tbl_attr, container_t)
-                self._refresh_tender_table(container_t, data,
-                                           key_label, val_label)
-
-        # ── Extra config cards (Tender Breakdown) ──────────────────────
-        if extra_configs:
-            for idx, (heading, data) in enumerate(extra_configs):
-                ec = _Card(page)
-                ec.grid(row=grid_row, column=0, sticky="ew",
-                        padx=24, pady=(0, 12))
-                grid_row += 1
-                wrap = ctk.CTkFrame(ec, fg_color="transparent")
-                wrap.pack(fill="x", padx=20, pady=16)
-
-                hdr_e = ctk.CTkFrame(wrap, fg_color="transparent")
-                hdr_e.pack(fill="x", pady=(0, 8))
-                ctk.CTkLabel(hdr_e, text=heading,
-                             font=ctk.CTkFont(family=FONT, size=15,
-                                              weight="bold"),
-                             text_color=TEXT).pack(side="left")
-
-                if isinstance(data, dict) and data and isinstance(
-                        next(iter(data.values())), list):
-                    _filename_mapping_table(wrap, data, self)
-                elif isinstance(data, dict):
-                    tbl_attr = f"{page_key}_extra_{idx}"
-                    _add_button(hdr_e, lambda d=data,
-                                a=tbl_attr: self._add_kv(d, a))
-                    container_e = ctk.CTkFrame(wrap, fg_color="transparent")
-                    container_e.pack(fill="x")
-                    setattr(self, tbl_attr, container_e)
-                    self._refresh_kv_table(container_e, data)
-                elif isinstance(data, list):
-                    container_l = ctk.CTkFrame(wrap, fg_color="transparent")
-                    container_l.pack(fill="x")
-                    _edit_button(hdr_e, lambda d=data, c=container_l:
-                                 self._edit_list(d, c))
-                    _badge_list(container_l, data)
+        self._cs_log = ctk.CTkTextbox(
+            log_card, fg_color=BG, corner_radius=8,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=TEXT, wrap="word", state="disabled",
+            scrollbar_button_color="#D1D1D6",
+            scrollbar_button_hover_color="#A1A1A6")
+        self._cs_log.pack(fill="both", expand=True, padx=12, pady=(0, 10))
 
         return page
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  CONFIGURATION PAGE  (Location Mappings only)
-    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
+    #  TENDER BREAKDOWN PAGE (placeholder)
+    # ══════════════════════════════════════════════════════════════
+    def _build_tender_page(self):
+        page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        page.grid_columnconfigure(0, weight=1)
+        page.grid_rowconfigure(0, weight=0)
+        page.grid_rowconfigure(1, weight=1)
+
+        card = _Card(page)
+        card.grid(row=0, column=0, sticky="ew", padx=20, pady=(12, 8))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
+        inner.grid_columnconfigure(1, weight=1)
+
+        _section_label(inner, "⚙️ Settings", grid_pos=(0, 0, 2))
+
+        self._tb_folder1_entry = self._folder_row(
+            inner, 1, "📁 Cash Sheets Folder:")
+
+        self._tb_file_entry = self._file_row(
+            inner, 2, "📄 Breakdown File:")
+
+        # Date
+        df = ctk.CTkFrame(inner, fg_color="transparent")
+        df.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
+        df.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(df, text="📅 Date:",
+                     font=ctk.CTkFont(family=FONT, size=12),
+                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
+                                               padx=(0, 10))
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%Y")
+        self._tb_date_entry = ctk.CTkEntry(
+            df, height=34, corner_radius=8, border_color=BORDER,
+            border_width=1, fg_color=BG,
+            font=ctk.CTkFont(size=12), text_color=TEXT)
+        self._tb_date_entry.insert(0, yesterday)
+        self._tb_date_entry.grid(row=0, column=1, sticky="ew")
+
+        # Run button
+        bf = ctk.CTkFrame(inner, fg_color="transparent")
+        bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self._tb_run_btn = ctk.CTkButton(
+            bf, text="🚀  Run Tender Breakdown Autofill",
+            font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            height=40, corner_radius=10,
+            command=self._run_tender_autofill, cursor="hand2",
+        )
+        self._tb_run_btn.pack(fill="x")
+
+        # Result log
+        log_card = _Card(page)
+        log_card.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
+
+        log_header = ctk.CTkFrame(log_card, fg_color="transparent")
+        log_header.pack(fill="x", padx=16, pady=(10, 4))
+        ctk.CTkLabel(log_header, text="📋 Result Log",
+                     font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
+                     text_color=TEXT).pack(side="left")
+        ctk.CTkButton(
+            log_header, text="Clear", width=50, height=24, corner_radius=6,
+            fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
+            font=ctk.CTkFont(family=FONT, size=11),
+            command=lambda: self._clear_log(self._tb_log)
+        ).pack(side="right")
+
+        self._tb_status = ctk.CTkLabel(
+            log_header, text="Ready",
+            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
+        self._tb_status.pack(side="right", padx=(0, 10))
+
+        self._tb_log = ctk.CTkTextbox(
+            log_card, fg_color=BG, corner_radius=8,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=TEXT, wrap="word", state="disabled",
+            scrollbar_button_color="#D1D1D6",
+            scrollbar_button_hover_color="#A1A1A6")
+        self._tb_log.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+
+        return page
+
+    # ══════════════════════════════════════════════════════════════
+    #  CONFIGURATION PAGE
+    # ══════════════════════════════════════════════════════════════
     def _build_config_page(self):
         page = ctk.CTkScrollableFrame(
             self, fg_color=BG, corner_radius=0,
@@ -351,91 +329,142 @@ class AutoFillCenter(ctk.CTkFrame):
             scrollbar_button_hover_color="#A1A1A6")
         page.grid_columnconfigure(0, weight=1)
 
-        # ── Cash Sheet Location Mappings ───────────────────────────────
+        grid_row = 0
+
+        # ── Location Mappings ──────────────────────────────────────
         c1 = _Card(page)
-        c1.grid(row=0, column=0, sticky="ew", padx=24, pady=(16, 20))
+        c1.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(12, 8))
+        grid_row += 1
 
         w1 = ctk.CTkFrame(c1, fg_color="transparent")
-        w1.pack(fill="x", padx=20, pady=16)
+        w1.pack(fill="x", padx=16, pady=12)
 
-        hdr1 = ctk.CTkFrame(w1, fg_color="transparent")
-        hdr1.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(hdr1, text="🏢 Cash Sheet Location Mappings",
-                     font=ctk.CTkFont(family=FONT, size=16, weight="bold"),
+        hdr = ctk.CTkFrame(w1, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(hdr, text="🏢 Cash Sheet Location Mappings",
+                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
-        self._cs_loc_count_lbl = ctk.CTkLabel(
-            hdr1, text=f"({len(REPORTS_CASHSHEET_MAP)} locations)",
-            font=ctk.CTkFont(family=FONT, size=12), text_color=TEXT_MUTED)
-        self._cs_loc_count_lbl.pack(side="left", padx=(8, 0))
-        _add_button(hdr1, self._add_cs_location)
+        self._cs_loc_count = ctk.CTkLabel(
+            hdr, text=f"({len(REPORTS_CASHSHEET_MAP)} locations)",
+            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
+        self._cs_loc_count.pack(side="left", padx=(6, 0))
+        _add_button(hdr, self._add_cs_location)
 
         self._cs_loc_container = ctk.CTkFrame(w1, fg_color="transparent")
         self._cs_loc_container.pack(fill="x")
         self._refresh_cs_loc_table()
 
+        # ── Fill Column Mappings ───────────────────────────────────
+        c2 = _Card(page)
+        c2.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
+        grid_row += 1
+        w2 = ctk.CTkFrame(c2, fg_color="transparent")
+        w2.pack(fill="x", padx=16, pady=12)
+
+        hdr2 = ctk.CTkFrame(w2, fg_color="transparent")
+        hdr2.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(hdr2, text="📋 Fill Column Mappings",
+                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
+                     text_color=TEXT).pack(side="left")
+        _add_button(hdr2, lambda: self._add_kv(FILL_COL_MAP, self._fill_tbl))
+
+        self._fill_tbl = ctk.CTkFrame(w2, fg_color="transparent")
+        self._fill_tbl.pack(fill="x")
+        self._refresh_kv_table(self._fill_tbl, FILL_COL_MAP)
+
+        # ── Checking Column Mappings ───────────────────────────────
+        ctk.CTkFrame(w2, fg_color=BORDER, height=1).pack(fill="x", pady=10)
+        hdr3 = ctk.CTkFrame(w2, fg_color="transparent")
+        hdr3.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(hdr3, text="✅ Checking Columns",
+                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
+                     text_color=TEXT).pack(side="left")
+        _add_button(hdr3, lambda: self._add_kv(
+            CHECKING_COL_MAP, self._chk_tbl))
+
+        self._chk_tbl = ctk.CTkFrame(w2, fg_color="transparent")
+        self._chk_tbl.pack(fill="x")
+        self._refresh_kv_table(self._chk_tbl, CHECKING_COL_MAP)
+
+        # ── Tender Mappings ────────────────────────────────────────
+        tender_maps = [
+            ("📄 Infor Tenders",   "Tender Name", "Internal Key", INFOR_TENDERS),
+            ("📄 Tavlo Tenders",   "Tender Name", "Internal Key", TAVLO_TENDERS),
+            ("📋 Cash Sheet Tenders", "Key", "Default", CASHEET_TENDERS),
+        ]
+        for heading, kl, vl, data in tender_maps:
+            tc = _Card(page)
+            tc.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
+            grid_row += 1
+            wt = ctk.CTkFrame(tc, fg_color="transparent")
+            wt.pack(fill="x", padx=16, pady=12)
+            ht = ctk.CTkFrame(wt, fg_color="transparent")
+            ht.pack(fill="x", pady=(0, 8))
+            ctk.CTkLabel(ht, text=heading,
+                         font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
+                         text_color=TEXT).pack(side="left")
+            container = ctk.CTkFrame(wt, fg_color="transparent")
+            container.pack(fill="x")
+            _add_button(ht, lambda d=data, c=container, k=kl, v=vl:
+                        self._add_tender(d, c, k, v))
+            self._refresh_tender_table(container, data, kl, vl)
+
         return page
 
-    # ══════════════════════════════════════════════════════════════════════
-    #  FOLDER / FILE ROWS
-    # ══════════════════════════════════════════════════════════════════════
-    def _folder_row(self, parent, grid_r, label, page_key, attr):
+    # ══════════════════════════════════════════════════════════════
+    #  FOLDER / FILE PICKERS
+    # ══════════════════════════════════════════════════════════════
+    def _folder_row(self, parent, grid_r, label):
         rf = ctk.CTkFrame(parent, fg_color="transparent")
-        rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=8)
+        rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=6)
         rf.grid_columnconfigure(1, weight=1)
-
         ctk.CTkLabel(rf, text=label,
-                     font=ctk.CTkFont(family=FONT, size=13),
+                     font=ctk.CTkFont(family=FONT, size=12),
                      text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
-                                               padx=(0, 12))
+                                               padx=(0, 10))
         entry = ctk.CTkEntry(rf, placeholder_text="No folder selected",
-                             font=ctk.CTkFont(family=FONT, size=12),
-                             height=36, border_color=BORDER, state="readonly")
-        entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-
+                             font=ctk.CTkFont(family=FONT, size=11),
+                             height=32, border_color=BORDER, state="readonly")
+        entry.grid(row=0, column=1, sticky="ew", padx=(0, 6))
         ctk.CTkButton(
-            rf, text="Browse", width=80, height=36, corner_radius=8,
-            fg_color=PURPLE_LIGHT, text_color=PURPLE, hover_color=PURPLE_SUBTLE,
-            font=ctk.CTkFont(family=FONT, size=12),
-            command=lambda: self._pick_folder(page_key, attr, entry),
-            cursor="hand2",
+            rf, text="Browse", width=70, height=32, corner_radius=8,
+            fg_color=PURPLE_LIGHT, text_color=PURPLE,
+            hover_color=PURPLE_SUBTLE,
+            font=ctk.CTkFont(family=FONT, size=11),
+            command=lambda: self._pick_folder(entry), cursor="hand2",
         ).grid(row=0, column=2)
+        return entry
 
-        setattr(self, f"{page_key}_{attr}_entry", entry)
-
-    def _file_row(self, parent, grid_r, label, page_key, attr):
+    def _file_row(self, parent, grid_r, label):
         rf = ctk.CTkFrame(parent, fg_color="transparent")
-        rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=8)
+        rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=6)
         rf.grid_columnconfigure(1, weight=1)
-
         ctk.CTkLabel(rf, text=label,
-                     font=ctk.CTkFont(family=FONT, size=13),
+                     font=ctk.CTkFont(family=FONT, size=12),
                      text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
-                                               padx=(0, 12))
+                                               padx=(0, 10))
         entry = ctk.CTkEntry(rf, placeholder_text="No file selected",
-                             font=ctk.CTkFont(family=FONT, size=12),
-                             height=36, border_color=BORDER, state="readonly")
-        entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-
+                             font=ctk.CTkFont(family=FONT, size=11),
+                             height=32, border_color=BORDER, state="readonly")
+        entry.grid(row=0, column=1, sticky="ew", padx=(0, 6))
         ctk.CTkButton(
-            rf, text="Browse", width=80, height=36, corner_radius=8,
-            fg_color=PURPLE_LIGHT, text_color=PURPLE, hover_color=PURPLE_SUBTLE,
-            font=ctk.CTkFont(family=FONT, size=12),
-            command=lambda: self._pick_file(page_key, attr, entry),
-            cursor="hand2",
+            rf, text="Browse", width=70, height=32, corner_radius=8,
+            fg_color=PURPLE_LIGHT, text_color=PURPLE,
+            hover_color=PURPLE_SUBTLE,
+            font=ctk.CTkFont(family=FONT, size=11),
+            command=lambda: self._pick_file(entry), cursor="hand2",
         ).grid(row=0, column=2)
+        return entry
 
-        setattr(self, f"{page_key}_{attr}_entry", entry)
-
-    def _pick_folder(self, page_key, attr, entry):
+    def _pick_folder(self, entry):
         path = filedialog.askdirectory(title="Select Folder")
         if path:
             entry.configure(state="normal")
             entry.delete(0, "end")
             entry.insert(0, path)
             entry.configure(state="readonly")
-            setattr(self, f"{page_key}_{attr}", path)
 
-    def _pick_file(self, page_key, attr, entry):
+    def _pick_file(self, entry):
         path = filedialog.askopenfilename(
             title="Select File",
             filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")])
@@ -444,185 +473,262 @@ class AutoFillCenter(ctk.CTkFrame):
             entry.delete(0, "end")
             entry.insert(0, path)
             entry.configure(state="readonly")
-            setattr(self, f"{page_key}_{attr}", path)
 
-    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
+    #  LOG HELPERS
+    # ══════════════════════════════════════════════════════════════
+    def _append_log(self, log_widget, text):
+        """Thread-safe append to a CTkTextbox."""
+        def _do():
+            log_widget.configure(state="normal")
+            log_widget.insert("end", text + "\n")
+            log_widget.see("end")
+            log_widget.configure(state="disabled")
+        # Schedule on main thread if called from worker
+        self.after(0, _do)
+
+    def _clear_log(self, log_widget):
+        log_widget.configure(state="normal")
+        log_widget.delete("1.0", "end")
+        log_widget.configure(state="disabled")
+
+    def _set_status(self, label, text, color=TEXT_MUTED):
+        self.after(0, lambda: label.configure(text=text, text_color=color))
+
+    # ══════════════════════════════════════════════════════════════
+    #  RUN CASH SHEET AUTOFILL
+    # ══════════════════════════════════════════════════════════════
+    def _run_cash_sheet_autofill(self):
+        casheet_dir = self._cs_folder1_entry.get().strip()
+        reports_dir = self._cs_folder2_entry.get().strip()
+        date_str = self._cs_date_entry.get().strip()
+
+        if not casheet_dir:
+            messagebox.showwarning("Missing", "Select the Cash Sheet folder.")
+            return
+        if not reports_dir:
+            messagebox.showwarning("Missing", "Select the Day Reports folder.")
+            return
+        if not date_str:
+            messagebox.showwarning("Missing", "Enter a date.")
+            return
+
+        # Disable button
+        self._cs_run_btn.configure(state="disabled",
+                                   text="⏳  Running...")
+        self._clear_log(self._cs_log)
+        self._set_status(self._cs_status, "Processing...", ORANGE)
+
+        def _on_event(kind, msg):
+            """Callback from ProcessingTracker — runs on worker thread."""
+            self._append_log(self._cs_log, msg)
+
+        def _worker():
+            try:
+                tracker = execute(
+                    reports_dir, casheet_dir,
+                    report_date=date_str,
+                    on_event=_on_event,
+                )
+                # Back to main thread for final UI update
+                self.after(0, lambda: self._on_cash_sheet_done(tracker))
+            except Exception as exc:
+                self._append_log(self._cs_log, f"\n❌ Unexpected error: {exc}")
+                self.after(0, lambda: self._on_cash_sheet_done(None))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_cash_sheet_done(self, tracker):
+        self._cs_run_btn.configure(state="normal",
+                                   text="🚀  Run Cash Sheet Autofill")
+        if tracker is None:
+            self._set_status(self._cs_status, "Error", RED)
+            return
+
+        s = len(tracker.successful)
+        f = len(tracker.failed)
+        w = len(tracker.warnings)
+
+        if f == 0:
+            self._set_status(self._cs_status,
+                             f"Done: {s} ok, {w} warnings", GREEN)
+        else:
+            self._set_status(self._cs_status,
+                             f"Done: {s} ok, {f} failed, {w} warnings", RED)
+
+    # ══════════════════════════════════════════════════════════════
+    #  RUN TENDER BREAKDOWN (placeholder)
+    # ══════════════════════════════════════════════════════════════
+    def _run_tender_autofill(self):
+        self._append_log(self._tb_log,
+                         "Tender Breakdown autofill not yet implemented.")
+        self._set_status(self._tb_status, "Not implemented", ORANGE)
+
+    # ══════════════════════════════════════════════════════════════
     #  CONFIG TABLE REFRESHERS
-    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
     def _refresh_cs_loc_table(self):
         for w in self._cs_loc_container.winfo_children():
             w.destroy()
-
-        # Update count label if it exists
-        if hasattr(self, '_cs_loc_count_lbl'):
-            self._cs_loc_count_lbl.configure(
+        if hasattr(self, "_cs_loc_count"):
+            self._cs_loc_count.configure(
                 text=f"({len(REPORTS_CASHSHEET_MAP)} locations)")
 
         tbl = ctk.CTkFrame(self._cs_loc_container, fg_color=BG,
-                           corner_radius=10)
+                           corner_radius=8)
         tbl.pack(fill="x")
 
         # Header
         hr = ctk.CTkFrame(tbl, fg_color="transparent")
-        hr.pack(fill="x", padx=14, pady=(10, 4))
+        hr.pack(fill="x", padx=12, pady=(8, 4))
         for col, (txt, wt) in enumerate([
             ("Report Name", 1), ("Cash Sheet", 1), ("Register", 1), ("", 0)
         ]):
             hr.grid_columnconfigure(col, weight=wt)
             ctk.CTkLabel(hr, text=txt,
-                         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                         font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
                          text_color=TEXT_MUTED).grid(
                 row=0, column=col, sticky="w",
-                padx=(0 if col == 0 else 20, 0))
+                padx=(0 if col == 0 else 16, 0))
 
-        for i, (report, (sheet, register)) in enumerate(
+        for i, (report, mapping_val) in enumerate(
                 REPORTS_CASHSHEET_MAP.items()):
+            # Handle both list and tuple formats
+            if isinstance(mapping_val, (list, tuple)) and len(mapping_val) >= 2:
+                sheet, register = mapping_val[0], mapping_val[1]
+            else:
+                sheet, register = str(mapping_val), ""
+
             r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
-                             corner_radius=4, height=36)
-            r.pack(fill="x", padx=8, pady=1)
+                             corner_radius=4, height=30)
+            r.pack(fill="x", padx=6, pady=1)
             r.pack_propagate(False)
             for c in range(5):
                 r.grid_columnconfigure(c, weight=1 if c < 3 else 0)
-
             ctk.CTkLabel(r, text=report,
-                         font=ctk.CTkFont(family=FONT, size=12),
-                         text_color=TEXT).grid(row=0, column=0, sticky="w",
-                                               padx=12)
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT).grid(row=0, column=0, sticky="w", padx=10)
             ctk.CTkLabel(r, text=sheet,
-                         font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
-                         text_color=PURPLE).grid(row=0, column=1, sticky="w",
-                                                 padx=(20, 0))
+                         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                         text_color=PURPLE).grid(row=0, column=1, sticky="w", padx=(16, 0))
             ctk.CTkLabel(r, text=register,
-                         font=ctk.CTkFont(family=FONT, size=12),
-                         text_color=TEXT_SEC).grid(row=0, column=2, sticky="w",
-                                                   padx=(20, 0))
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT_SEC).grid(row=0, column=2, sticky="w", padx=(16, 0))
             ctk.CTkButton(
-                r, text="✏️", width=30, height=26, corner_radius=6,
+                r, text="✏️", width=26, height=22, corner_radius=5,
                 fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(size=10),
                 command=lambda rpt=report: self._edit_cs_row(rpt),
                 cursor="hand2",
-            ).grid(row=0, column=3, padx=(10, 2))
+            ).grid(row=0, column=3, padx=(8, 2))
             ctk.CTkButton(
-                r, text="🗑", width=30, height=26, corner_radius=6,
+                r, text="🗑", width=26, height=22, corner_radius=5,
                 fg_color=RED_BG, text_color=RED, hover_color="#FFCCC9",
-                font=ctk.CTkFont(size=12),
+                font=ctk.CTkFont(size=10),
                 command=lambda rpt=report: self._del_cs_loc(rpt),
                 cursor="hand2",
-            ).grid(row=0, column=4, padx=(2, 12))
+            ).grid(row=0, column=4, padx=(2, 10))
 
     def _refresh_kv_table(self, container, mapping):
         for w in container.winfo_children():
             w.destroy()
-
-        tbl = ctk.CTkFrame(container, fg_color=BG, corner_radius=10)
+        tbl = ctk.CTkFrame(container, fg_color=BG, corner_radius=8)
         tbl.pack(fill="x")
 
         hr = ctk.CTkFrame(tbl, fg_color="transparent")
-        hr.pack(fill="x", padx=14, pady=(10, 4))
+        hr.pack(fill="x", padx=12, pady=(8, 4))
         hr.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(hr, text="Field",
-                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                     font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
                      text_color=TEXT_MUTED).grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(hr, text="Column",
-                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
-                     text_color=TEXT_MUTED).grid(row=0, column=1, sticky="e",
-                                                 padx=(0, 80))
+                     font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
+                     text_color=TEXT_MUTED).grid(row=0, column=1, sticky="e", padx=(0, 70))
 
         for i, (k, v) in enumerate(mapping.items()):
             r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
-                             corner_radius=4, height=32)
-            r.pack(fill="x", padx=8, pady=1)
+                             corner_radius=4, height=28)
+            r.pack(fill="x", padx=6, pady=1)
             r.pack_propagate(False)
             r.grid_columnconfigure(0, weight=1)
-
             ctk.CTkLabel(r, text=str(k).replace("_", " ").title(),
-                         font=ctk.CTkFont(family=FONT, size=12),
-                         text_color=TEXT).grid(row=0, column=0, sticky="w",
-                                               padx=12)
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT).grid(row=0, column=0, sticky="w", padx=10)
             ctk.CTkLabel(r, text=f"Col {v}",
-                         font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
-                         text_color=PURPLE).grid(row=0, column=1, sticky="e",
-                                                 padx=12)
+                         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                         text_color=PURPLE).grid(row=0, column=1, sticky="e", padx=10)
             ctk.CTkButton(
-                r, text="✏️", width=30, height=24, corner_radius=6,
+                r, text="✏️", width=26, height=20, corner_radius=5,
                 fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
-                font=ctk.CTkFont(size=11),
-                command=lambda key=k, m=mapping, c=container: self._edit_kv_row(
-                    m, key, c),
+                font=ctk.CTkFont(size=10),
+                command=lambda key=k, m=mapping, c=container:
+                    self._edit_kv_row(m, key, c),
                 cursor="hand2",
             ).grid(row=0, column=2, padx=(4, 2))
             ctk.CTkButton(
-                r, text="🗑", width=30, height=24, corner_radius=6,
+                r, text="🗑", width=26, height=20, corner_radius=5,
                 fg_color=RED_BG, text_color=RED, hover_color="#FFCCC9",
-                font=ctk.CTkFont(size=11),
-                command=lambda key=k, m=mapping, c=container: self._del_kv(
-                    m, key, c),
+                font=ctk.CTkFont(size=10),
+                command=lambda key=k, m=mapping, c=container:
+                    self._del_kv(m, key, c),
                 cursor="hand2",
-            ).grid(row=0, column=3, padx=(2, 12))
+            ).grid(row=0, column=3, padx=(2, 10))
 
-    def _refresh_tender_table(self, container, mapping,
-                              key_label="Key", val_label="Value"):
-        """Render a key→value table with custom column headers."""
+    def _refresh_tender_table(self, container, mapping, kl="Key", vl="Value"):
         for w in container.winfo_children():
             w.destroy()
-
-        tbl = ctk.CTkFrame(container, fg_color=BG, corner_radius=10)
+        tbl = ctk.CTkFrame(container, fg_color=BG, corner_radius=8)
         tbl.pack(fill="x")
 
         hr = ctk.CTkFrame(tbl, fg_color="transparent")
-        hr.pack(fill="x", padx=14, pady=(10, 4))
+        hr.pack(fill="x", padx=12, pady=(8, 4))
         hr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(hr, text=key_label,
-                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+        ctk.CTkLabel(hr, text=kl,
+                     font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
                      text_color=TEXT_MUTED).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hr, text=val_label,
-                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
-                     text_color=TEXT_MUTED).grid(row=0, column=1, sticky="e",
-                                                 padx=(0, 80))
+        ctk.CTkLabel(hr, text=vl,
+                     font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
+                     text_color=TEXT_MUTED).grid(row=0, column=1, sticky="e", padx=(0, 70))
 
         for i, (k, v) in enumerate(mapping.items()):
             r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
-                             corner_radius=4, height=32)
-            r.pack(fill="x", padx=8, pady=1)
+                             corner_radius=4, height=28)
+            r.pack(fill="x", padx=6, pady=1)
             r.pack_propagate(False)
             r.grid_columnconfigure(0, weight=1)
-
             ctk.CTkLabel(r, text=str(k),
-                         font=ctk.CTkFont(family=FONT, size=12),
-                         text_color=TEXT).grid(row=0, column=0, sticky="w",
-                                               padx=12)
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT).grid(row=0, column=0, sticky="w", padx=10)
             ctk.CTkLabel(r, text=str(v),
-                         font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
-                         text_color=PURPLE).grid(row=0, column=1, sticky="e",
-                                                 padx=12)
+                         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                         text_color=PURPLE).grid(row=0, column=1, sticky="e", padx=10)
             ctk.CTkButton(
-                r, text="✏️", width=30, height=24, corner_radius=6,
+                r, text="✏️", width=26, height=20, corner_radius=5,
                 fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(size=10),
                 command=lambda key=k, m=mapping, c=container,
-                kl=key_label, vl=val_label: self._edit_tender_row(
-                    m, key, c, kl, vl),
+                        _kl=kl, _vl=vl:
+                self._edit_tender_row(m, key, c, _kl, _vl),
                 cursor="hand2",
             ).grid(row=0, column=2, padx=(4, 2))
             ctk.CTkButton(
-                r, text="🗑", width=30, height=24, corner_radius=6,
+                r, text="🗑", width=26, height=20, corner_radius=5,
                 fg_color=RED_BG, text_color=RED, hover_color="#FFCCC9",
-                font=ctk.CTkFont(size=11),
+                font=ctk.CTkFont(size=10),
                 command=lambda key=k, m=mapping, c=container,
-                kl=key_label, vl=val_label: self._del_tender_row(
-                    m, key, c, kl, vl),
+                        _kl=kl, _vl=vl:
+                self._del_tender_row(m, key, c, _kl, _vl),
                 cursor="hand2",
-            ).grid(row=0, column=3, padx=(2, 12))
+            ).grid(row=0, column=3, padx=(2, 10))
 
-    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
     #  DIALOG + CRUD OPERATIONS
-    # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════
     def _input_dialog(self, title, fields, defaults=None):
-        """Modal dialog returning dict of field→value, or None on cancel."""
+        """Modal dialog returning dict of field->value, or None on cancel."""
         dlg = ctk.CTkToplevel(self)
         dlg.title(title)
-        dlg.geometry(f"440x{60 + len(fields) * 56 + 60}")
+        dlg.geometry(f"400x{50 + len(fields) * 52 + 55}")
         dlg.resizable(False, False)
         dlg.grab_set()
         dlg.configure(fg_color=BG)
@@ -630,12 +736,12 @@ class AutoFillCenter(ctk.CTkFrame):
         entries = {}
         for i, f in enumerate(fields):
             ctk.CTkLabel(dlg, text=f,
-                         font=ctk.CTkFont(family=FONT, size=13),
-                         text_color=TEXT).pack(anchor="w", padx=20,
-                                               pady=(12 if i == 0 else 4, 0))
-            e = ctk.CTkEntry(dlg, height=34, border_color=BORDER,
-                             font=ctk.CTkFont(family=FONT, size=13))
-            e.pack(fill="x", padx=20, pady=(2, 0))
+                         font=ctk.CTkFont(family=FONT, size=12),
+                         text_color=TEXT).pack(anchor="w", padx=16,
+                                               pady=(10 if i == 0 else 3, 0))
+            e = ctk.CTkEntry(dlg, height=30, border_color=BORDER,
+                             font=ctk.CTkFont(family=FONT, size=12))
+            e.pack(fill="x", padx=16, pady=(2, 0))
             if defaults and f in defaults:
                 e.insert(0, str(defaults[f]))
             entries[f] = e
@@ -650,40 +756,40 @@ class AutoFillCenter(ctk.CTkFrame):
             dlg.destroy()
 
         bf = ctk.CTkFrame(dlg, fg_color="transparent")
-        bf.pack(fill="x", padx=20, pady=(16, 12))
-        ctk.CTkButton(bf, text="Cancel", width=90, height=36,
+        bf.pack(fill="x", padx=16, pady=(12, 10))
+        ctk.CTkButton(bf, text="Cancel", width=80, height=32,
                       fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
                       border_width=1, border_color=BORDER, corner_radius=8,
-                      command=dlg.destroy).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(bf, text="Save", width=90, height=36,
+                      command=dlg.destroy).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bf, text="Save", width=80, height=32,
                       fg_color=PURPLE, hover_color=PURPLE_DARK,
                       corner_radius=8, command=save).pack(side="left")
 
         dlg.wait_window()
         return result if not cancelled[0] else None
 
-    def _warn(self, message):
-        messagebox.showwarning("Warning", message)
-
     # -- CS Location CRUD --
     def _add_cs_location(self):
         r = self._input_dialog("Add Location",
                                ["Report Name", "Cash Sheet", "Register"])
         if r and r["Report Name"]:
-            REPORTS_CASHSHEET_MAP[r["Report Name"]] = (r["Cash Sheet"],
-                                                       r["Register"])
+            REPORTS_CASHSHEET_MAP[r["Report Name"]] = [r["Cash Sheet"],
+                                                       r["Register"]]
             self._refresh_cs_loc_table()
 
     def _edit_cs_row(self, report_name):
-        """Edit a specific location row — pre-fills current values."""
-        sheet, register = REPORTS_CASHSHEET_MAP[report_name]
+        mapping_val = REPORTS_CASHSHEET_MAP[report_name]
+        if isinstance(mapping_val, (list, tuple)) and len(mapping_val) >= 2:
+            sheet, register = mapping_val[0], mapping_val[1]
+        else:
+            sheet, register = str(mapping_val), ""
         r = self._input_dialog(
             f"Edit: {report_name}",
             ["Cash Sheet", "Register"],
             defaults={"Cash Sheet": sheet, "Register": register})
         if r:
-            REPORTS_CASHSHEET_MAP[report_name] = (r["Cash Sheet"],
-                                                  r["Register"])
+            REPORTS_CASHSHEET_MAP[report_name] = [r["Cash Sheet"],
+                                                  r["Register"]]
             self._refresh_cs_loc_table()
 
     def _del_cs_loc(self, name):
@@ -692,17 +798,16 @@ class AutoFillCenter(ctk.CTkFrame):
             self._refresh_cs_loc_table()
 
     # -- Key/Value CRUD --
-    def _add_kv(self, mapping, attr_name):
+    def _add_kv(self, mapping, container):
         r = self._input_dialog("Add Mapping", ["Field Name", "Column Number"])
         if r and r["Field Name"]:
             try:
                 mapping[r["Field Name"]] = int(r["Column Number"])
             except ValueError:
                 mapping[r["Field Name"]] = r["Column Number"]
-            self._refresh_kv_table(getattr(self, attr_name), mapping)
+            self._refresh_kv_table(container, mapping)
 
     def _edit_kv_row(self, mapping, key, container):
-        """Edit a specific key/value row — pre-fills current value."""
         current = mapping[key]
         r = self._input_dialog(
             f"Edit: {key.replace('_', ' ').title()}",
@@ -721,277 +826,65 @@ class AutoFillCenter(ctk.CTkFrame):
             self._refresh_kv_table(container, mapping)
 
     # -- Tender Mapping CRUD --
-    def _add_tender(self, mapping, attr_name,
-                    key_label="Key", val_label="Value"):
-        r = self._input_dialog("Add Entry", [key_label, val_label])
-        if r and r[key_label]:
-            new_val = r[val_label].strip()
+    def _add_tender(self, mapping, container, kl="Key", vl="Value"):
+        r = self._input_dialog("Add Entry", [kl, vl])
+        if r and r[kl]:
+            new_val = r[vl].strip()
             try:
                 new_val = float(new_val) if "." in new_val else int(new_val)
             except ValueError:
                 pass
-            mapping[r[key_label].strip()] = new_val
-            self._refresh_tender_table(
-                getattr(self, attr_name), mapping, key_label, val_label)
+            mapping[r[kl].strip()] = new_val
+            self._refresh_tender_table(container, mapping, kl, vl)
 
-    def _edit_tender_row(self, mapping, key, container,
-                         key_label="Key", val_label="Value"):
-        """Edit a tender mapping row — both key and value."""
+    def _edit_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
         current_val = mapping[key]
         r = self._input_dialog(
             f"Edit: {key}",
-            [key_label, val_label],
-            defaults={key_label: key, val_label: current_val})
-        if r and r[key_label]:
-            new_key = r[key_label].strip()
-            new_val = r[val_label].strip()
-
-            # Try to preserve numeric types
+            [kl, vl],
+            defaults={kl: key, vl: current_val})
+        if r and r[kl]:
+            new_key = r[kl].strip()
+            new_val = r[vl].strip()
             try:
                 new_val = float(new_val) if "." in new_val else int(new_val)
             except ValueError:
-                pass  # keep as string
-
-            # If key changed, remove old and insert new
+                pass
             if new_key != key:
                 mapping.pop(key, None)
             mapping[new_key] = new_val
-            self._refresh_tender_table(container, mapping,
-                                       key_label, val_label)
+            self._refresh_tender_table(container, mapping, kl, vl)
 
-    def _del_tender_row(self, mapping, key, container,
-                        key_label="Key", val_label="Value"):
+    def _del_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
         if messagebox.askyesno("Delete", f"Delete '{key}'?"):
             mapping.pop(key, None)
-            self._refresh_tender_table(container, mapping,
-                                       key_label, val_label)
-
-    def _edit_list(self, lst, container):
-        """Edit the entire list as comma-separated values."""
-        current = ", ".join(str(x) for x in lst)
-        r = self._input_dialog(
-            "Edit Important Data Columns",
-            ["Column Numbers (comma-separated)"],
-            defaults={"Column Numbers (comma-separated)": current})
-        if r and r["Column Numbers (comma-separated)"]:
-            try:
-                new_lst = [
-                    int(x.strip())
-                    for x in r["Column Numbers (comma-separated)"].split(",")
-                    if x.strip() and int(x.strip()) > 0
-                ]
-                new_lst = sorted(set(new_lst))
-            except ValueError:
-                self._warn("Please enter valid integers separated by commas.")
-                return
-            lst.clear()
-            lst.extend(new_lst)
-            _badge_list(container, new_lst)
-
-    def _edit_filename_mapping(self, mapping, fname, master, container):
-        """Edit a filename mapping entry (all 3 columns)."""
-        current = mapping[fname]
-        # Find the entry with this master
-        for entry in current:
-            if master in entry:
-                search_keys = entry[master]
-                break
-        else:
-            return
-
-        # Format current search keys value
-        if isinstance(search_keys, list):
-            current_keys = ", ".join(search_keys)
-        else:
-            current_keys = str(search_keys)
-
-        r = self._input_dialog(
-            f"Edit Mapping",
-            ["Filename Keyword", "Master Name",
-                "Search Keys (comma-separated)"],
-            defaults={
-                "Filename Keyword": fname,
-                "Master Name": master,
-                "Search Keys (comma-separated)": current_keys
-            })
-
-        if r and r["Filename Keyword"] and r["Master Name"]:
-            new_fname = r["Filename Keyword"].strip().lower()
-            new_master = r["Master Name"].strip().lower()
-            new_keys_str = r["Search Keys (comma-separated)"].strip()
-
-            # Parse search keys as list if contains comma, else single string
-            if "," in new_keys_str:
-                new_keys = [k.strip()
-                            for k in new_keys_str.split(",") if k.strip()]
-            else:
-                new_keys = new_keys_str
-
-            # Remove old entry
-            for entry in mapping[fname]:
-                if master in entry:
-                    mapping[fname].remove(entry)
-                    break
-
-            # If old filename list is now empty, remove it
-            if not mapping[fname]:
-                del mapping[fname]
-
-            # Add new entry
-            if new_fname not in mapping:
-                mapping[new_fname] = []
-            mapping[new_fname].append({new_master: new_keys})
-
-            _render_filename_table(container, mapping, self)
-    # ══════════════════════════════════════════════════════════════════════
-    #  RUN AUTOFILL
-    # ══════════════════════════════════════════════════════════════════════
-
-    def _run_autofill(self, key):
-        f1 = getattr(self, f"{key}_folder1", None)
-        f2 = getattr(self, f"{key}_folder2", None)
-        de = getattr(self, f"{key}_date", None)
-
-        if not f1:
-            messagebox.showwarning("Missing",
-                                   "Please select the first folder/file.")
-            return
-        if not f2:
-            messagebox.showwarning("Missing",
-                                   "Please select the second folder/file.")
-            return
-        date_str = de.variable.get().strip() if de else ""
-        if not date_str:
-            messagebox.showwarning("Missing", "Please select a date.")
-            return
-
-        if key == "cash_sheet":
-            print(
-                f"Cash Sheet Autofill: folder={f1}, reports={f2}, date={date_str}")
-            messagebox.showinfo("Success", "Cash Sheet autofill completed!")
-        elif key == "tender":
-            print(f"Tender Breakdown: sheets={f1}, file={f2}, date={date_str}")
-            messagebox.showinfo(
-                "Success", "Tender Breakdown autofill completed!")
+            self._refresh_tender_table(container, mapping, kl, vl)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  HELPER WIDGETS (module-level)
+#  HELPER WIDGETS
 # ═══════════════════════════════════════════════════════════════════════════
-
 class _Card(ctk.CTkFrame):
     def __init__(self, parent, **kw):
-        super().__init__(parent, fg_color=CARD, corner_radius=16,
+        super().__init__(parent, fg_color=CARD, corner_radius=12,
                          border_width=1, border_color=BORDER, **kw)
 
 
 def _section_label(parent, text, grid_pos=None):
     lbl = ctk.CTkLabel(parent, text=text,
-                       font=ctk.CTkFont(family=FONT, size=15, weight="bold"),
+                       font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
                        text_color=TEXT)
     if grid_pos:
         row, col, span = grid_pos
         lbl.grid(row=row, column=col, columnspan=span, sticky="w",
-                 pady=(0, 10))
+                 pady=(0, 8))
     else:
-        lbl.pack(anchor="w", pady=(0, 8))
+        lbl.pack(anchor="w", pady=(0, 6))
 
 
 def _add_button(parent, add_cb):
-    """Single ＋ Add button for a section header."""
     ctk.CTkButton(
-        parent, text="＋ Add", width=70, height=30, corner_radius=8,
+        parent, text="＋ Add", width=60, height=26, corner_radius=6,
         fg_color=GREEN_BG, text_color=GREEN, hover_color="#D4F5DD",
-        font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
+        font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
         command=add_cb, cursor="hand2").pack(side="right")
-
-
-def _edit_button(parent, edit_cb):
-    """Single ✏️ Edit button for a section header."""
-    ctk.CTkButton(
-        parent, text="✏️ Edit", width=70, height=30, corner_radius=8,
-        fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
-        font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
-        command=edit_cb, cursor="hand2").pack(side="right", padx=(0, 8))
-
-
-def _badge_list(parent, items):
-    for w in parent.winfo_children():
-        w.destroy()
-
-    frame = ctk.CTkFrame(parent, fg_color=BG, corner_radius=10)
-    frame.pack(fill="x", pady=(4, 0))
-    inner = ctk.CTkFrame(frame, fg_color="transparent")
-    inner.pack(fill="x", padx=14, pady=10)
-    for item in items:
-        b = ctk.CTkFrame(inner, fg_color=PURPLE_LIGHT, corner_radius=6)
-        b.pack(side="left", padx=(0, 6), pady=2)
-        ctk.CTkLabel(b, text=f"  Col {item}  ",
-                     font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
-                     text_color=PURPLE).pack(padx=4, pady=4)
-
-
-def _filename_mapping_table(parent, mapping, autofill_center=None):
-    """Render a table for filename→master→search_keys mappings."""
-    tbl = ctk.CTkFrame(parent, fg_color=BG, corner_radius=10)
-    tbl.pack(fill="x", pady=(4, 0))
-
-    # Header row
-    hr = ctk.CTkFrame(tbl, fg_color="transparent")
-    hr.pack(fill="x", padx=14, pady=(10, 4))
-    hr.grid_columnconfigure((0, 1, 2), weight=1)
-    headers = [("Filename Keyword", 0), ("Master Name", 1), ("Search Keys", 2)]
-    for text, col in headers:
-        ctk.CTkLabel(hr, text=text,
-                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
-                     text_color=TEXT_MUTED).grid(
-            row=0, column=col, sticky="w", padx=(20 if col else 0, 0))
-
-    # Data rows
-    row_idx = 0
-    for fname, entries in mapping.items():
-        for entry in entries:
-            for master, search_key in entry.items():
-                row_bg = CARD if row_idx % 2 == 0 else BG
-                r = ctk.CTkFrame(tbl, fg_color=row_bg,
-                                 corner_radius=4, height=34)
-                r.pack(fill="x", padx=8, pady=1)
-                r.pack_propagate(False)
-                r.grid_columnconfigure((0, 1, 2), weight=1)
-
-                # Filename
-                ctk.CTkLabel(r, text=fname.title(),
-                             font=ctk.CTkFont(family=FONT, size=12),
-                             text_color=TEXT).grid(row=0, column=0, sticky="w", padx=12)
-
-                # Master name
-                ctk.CTkLabel(r, text=master.title(),
-                             font=ctk.CTkFont(family=FONT, size=12),
-                             text_color=PURPLE).grid(row=0, column=1, sticky="w", padx=(20, 12))
-
-                # Search keys
-                val = search_key if isinstance(
-                    search_key, str) else ", ".join(search_key)
-                ctk.CTkLabel(r, text=val,
-                             font=ctk.CTkFont(family=FONT, size=12),
-                             text_color=TEXT_SEC).grid(row=0, column=2, sticky="w", padx=(20, 0))
-
-                # Edit button (only if autofill_center provided)
-                if autofill_center:
-                    ctk.CTkButton(
-                        r, text="✏️", width=30, height=26, corner_radius=6,
-                        fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
-                        font=ctk.CTkFont(size=12),
-                        command=lambda f=fname, m=master: autofill_center._edit_filename_mapping(
-                            mapping, f, m, parent),
-                        cursor="hand2",
-                    ).grid(row=0, column=3, padx=(0, 12))
-
-                row_idx += 1
-
-
-def _render_filename_table(container, mapping, autofill_center=None):
-    """Clear and re-render the filename mapping table."""
-    for w in container.winfo_children():
-        w.destroy()
-    _filename_mapping_table(container, mapping, autofill_center)

@@ -5,7 +5,10 @@ Handles automated filling of cash sheet Excel workbooks with parsed sales data.
 
 from openpyxl import load_workbook
 import traceback
-from config import FILL_COL_MAP, CHECKING_COL_MAP
+try:
+    from .config import FILL_COL_MAP, CHECKING_COL_MAP
+except ImportError:
+    from config import FILL_COL_MAP, CHECKING_COL_MAP
 
 
 class ExcelAutofiller:
