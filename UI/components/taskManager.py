@@ -1,10 +1,10 @@
 import customtkinter as ctk
 import json
 import os
+from pathlib import Path
 from datetime import datetime
-from ctkdateentry import CTkDateEntry
 
-TASK_FILE = "tasks.json"
+TASK_FILE = str(Path(__file__).resolve().parents[2] / "tasks.json")
 
 # --- Color Palette ---
 PURPLE = "#6C5CE7"
@@ -251,21 +251,18 @@ class TaskManager(ctk.CTkFrame):
 
         right_col = ctk.CTkFrame(row, fg_color="transparent")
         right_col.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
-        self._make_field_label(right_col, "Deadline")
-        self.entry_deadline = CTkDateEntry(
+        self._make_field_label(right_col, "Deadline (dd/mm/yy)")
+        self.entry_deadline = ctk.CTkEntry(
             right_col,
+            placeholder_text="e.g. 25/02/26",
             height=40,
             corner_radius=10,
             border_color=BORDER_COLOR,
             border_width=1,
             fg_color=BG_GRAY,
             font=ctk.CTkFont(size=13),
-            text_color=TEXT_PRIMARY,
         )
         self.entry_deadline.pack(fill="x")
-
-        # Spacer for calendar dropdown
-        ctk.CTkFrame(form, fg_color="transparent", height=20).pack(fill="x")
 
         # ── Action Buttons ──
         btn_row = ctk.CTkFrame(self._popup, fg_color="transparent")
@@ -298,7 +295,7 @@ class TaskManager(ctk.CTkFrame):
         name = self.entry_name.get().strip()
         desc = self.entry_desc.get("1.0", "end").strip()
         assignee = self.entry_assignee.get().strip()
-        deadline = self.entry_deadline.variable.get().strip()
+        deadline = self.entry_deadline.get().strip()
 
         if not name:
             self.entry_name.configure(border_color=DANGER)
