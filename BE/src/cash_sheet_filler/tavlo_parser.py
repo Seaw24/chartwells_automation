@@ -6,7 +6,10 @@ sales, taxes, guest counts, and tender breakdowns.
 
 import xml.etree.ElementTree as ET
 import traceback
-from config import TAVLO_TENDERS, CASHEET_TENDERS
+try:
+    from .config import TAVLO_TENDERS, CASHEET_TENDERS
+except ImportError:
+    from config import TAVLO_TENDERS, CASHEET_TENDERS
 
 
 class TavloParser:

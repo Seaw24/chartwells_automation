@@ -5,7 +5,10 @@ sales, taxes, guest counts, and tender breakdowns.
 """
 
 import traceback
-from config import INFOR_TENDERS, CASHEET_TENDERS
+try:
+    from .config import INFOR_TENDERS, CASHEET_TENDERS
+except ImportError:
+    from config import INFOR_TENDERS, CASHEET_TENDERS
 
 
 class InforParser:
