@@ -9,6 +9,7 @@ try:
     from .config import FILL_COL_MAP, CHECKING_COL_MAP
 except ImportError:
     from config import FILL_COL_MAP, CHECKING_COL_MAP
+from ..utils import strip_accents
 
 
 class ExcelAutofiller:
@@ -25,7 +26,7 @@ class ExcelAutofiller:
         ws: Openpyxl worksheet object
     """
 
-    def __init__(self, xl_path, location, week_day):
+    def __init__(self, xl_path, location, week_day, tracker=None):
         """
         Initialize the ExcelAutofiller.
 
@@ -41,6 +42,26 @@ class ExcelAutofiller:
         self.row = 0
         self.wb = None
         self.ws = None
+        self.tracker = tracker
+
+    # ─── Logging Helpers ─────────────────────────────────────────────────
+
+    def _log(self, msg):
+        """Standard info logging."""
+        if self.tracker:
+            self.tracker.log(msg)
+        else:
+            print(msg)
+
+    def _log_error(self, msg):
+        """Log filling errors with a visual indicator."""
+        self._log(f"  ❌ {msg}")
+
+    def _log_warning(self, msg):
+        """Log filling warnings with a visual indicator."""
+        self._log(f"  ⚠️  {msg}")
+
+    # ─── Core Methods ────────────────────────────────────────────────────
 
     def open_workbook(self):
         """
@@ -56,25 +77,25 @@ class ExcelAutofiller:
             sheet_map = {s.lower(): s for s in self.wb.sheetnames}
             actual_name = sheet_map.get(self.week_day.lower())
             if actual_name is None:
-                print(f"  ❌ Worksheet '{self.week_day}' not found in workbook")
-                print(
-                    f"     Available sheets: {', '.join(self.wb.sheetnames)}")
+                self._log_error(
+                    f"Worksheet '{self.week_day}' not found in workbook")
                 return False
 
             self.ws = self.wb[actual_name]
             return True
 
         except FileNotFoundError:
-            print(f"  ❌ File not found: {self.xl_path}")
+            self._log_error(f"Workbook file not found: {self.xl_path}")
             return False
 
         except PermissionError:
-            print(f"  ❌ Permission denied: {self.xl_path}")
-            print("     Please close the file if it's currently open")
+            self._log_error(
+                f"Permission denied: {self.xl_path}. Please close the file if it's currently open.")
             return False
 
         except Exception as e:
-            print(f"  ❌ Unexpected error opening workbook: {e}")
+            self._log_error(f"Error opening workbook: {e}")
+            traceback.print_exc()
             return False
 
     def find_row(self):
@@ -87,7 +108,7 @@ class ExcelAutofiller:
         location_col = FILL_COL_MAP.get("location")
 
         if location_col is None:
-            print("  ❌ 'location' column not defined in FILL_COL_MAP")
+            self._log_error("'location' column not defined in FILL_COL_MAP")
             return False
 
         # Search through rows starting from start_row
@@ -95,16 +116,15 @@ class ExcelAutofiller:
             cell_value = self.ws.cell(r, location_col).value
 
             # Check if cell has value and matches location (case-insensitive, stripped)
-            if cell_value and cell_value.strip().lower() == self.location.lower():
+            if cell_value and strip_accents(cell_value.strip().lower()) == strip_accents(self.location.lower()):
                 self.row = r
-                print(
+                self._log(
                     f"  ✓ Found location '{self.location}' at row {self.row}")
                 return True
 
         # Location not found
-        print(
-            f"  ❌ Location '{self.location}' not found in worksheet '{self.week_day}'")
-        print(f"     Searched rows {self.start_row} to {self.ws.max_row}")
+        self._log_error(
+            f"Location '{self.location}' not found in column {location_col}")
         return False
 
     def checking_tenders(self):
@@ -117,8 +137,8 @@ class ExcelAutofiller:
         over_col = CHECKING_COL_MAP.get("over")
 
         if over_col is None:
-            print(
-                "  ⚠️  'over' column not defined in CHECKING_COL_MAP - skipping validation")
+            self._log_warning(
+                "'over' column not defined in CHECKING_COL_MAP - skipping validation")
             return True
 
         over_value = self.ws.cell(self.row, over_col).value
@@ -128,12 +148,12 @@ class ExcelAutofiller:
             try:
                 over_amount = float(over_value)
                 if over_amount != 0:
-                    print(
-                        f"  ⚠️  Tender discrepancy detected: ${over_amount:.2f}")
+                    self._log_warning(
+                        f"Tender validation failed: 'over/short' is {over_amount}")
                     return False
             except (ValueError, TypeError):
-                print(
-                    f"  ⚠️  Invalid value in over/short column: {over_value}")
+                self._log_error(
+                    f"Invalid value in 'over/short' column: {over_value}")
                 return False
 
         return True
@@ -141,17 +161,6 @@ class ExcelAutofiller:
     def filling(self, parser):
         """
         Fill the worksheet with data from the parser dictionary.
-
-        Args:
-            parser (dict): Dictionary containing parsed data with keys:
-                - date: Report date
-                - count: Guest count
-                - total_sales: Total sales amount
-                - tax: Tax amount
-                - tenders: Dictionary of tender types and amounts
-
-        Returns:
-            bool: True if filling successful, False otherwise
         """
         try:
             # Step 1: Find the correct row for this location
@@ -198,18 +207,18 @@ class ExcelAutofiller:
 
             # Report any unmatched tenders
             if unmatched_tenders:
-                print(
-                    f"  ⚠️  Unmatched tenders (not filled): {', '.join(unmatched_tenders)}")
+                self._log_warning(
+                    f"Unmatched tenders not filled: {', '.join(unmatched_tenders)}")
 
-            print(f"  ✓ {self.location} filled successfully")
+            self._log(f"  ✓ {self.location} filled successfully")
             return True
 
         except KeyError as e:
-            print(f"  ❌ Missing required data in parser: {e}")
+            self._log_error(f"Missing expected data key: {e}")
             return False
 
         except Exception as e:
-            print(f"  ❌ Error filling {self.location}: {e}")
+            self._log_error(f"Error during filling: {e}")
             traceback.print_exc()
             return False
 
@@ -223,7 +232,7 @@ class ExcelAutofiller:
         try:
             # Step 1: Save the workbook
             self.wb.save(self.xl_path)
-            print(f"  💾 Saved: {self.location} casheet")
+            self._log(f"  💾 Saved: {self.location} casheet")
 
             # Step 2: Reload workbook with calculated formulas (data_only=True)
             self.wb = load_workbook(self.xl_path, data_only=True)
@@ -235,20 +244,22 @@ class ExcelAutofiller:
             is_correct = self.checking_tenders()
 
             if is_correct:
-                print(
-                    f"  ✅ {self.location} validated - all tenders balance correctly")
+                self._log(
+                    f"  ✓ {self.location} casheet validated successfully")
             else:
-                print(
-                    f"  ⚠️  {self.location} validation warning - check over/short column")
+                self._log_warning(
+                    f"{self.location} validation warning - check over/short column")
 
             return is_correct
 
         except PermissionError:
-            print(f"  ❌ Cannot save: File is open in another program")
+            self._log_error(
+                f"Permission denied when saving: {self.xl_path}. Please close the file if it's currently open.")
             return False
 
         except Exception as e:
-            print(f"  ❌ Save error: {e}")
+            self._log_error(f"Error saving workbook: {e}")
+            traceback.print_exc()
             return False
 
     def close(self):
