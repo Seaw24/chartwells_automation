@@ -15,10 +15,11 @@ from tkinter import filedialog, messagebox  # noqa: E402
 from datetime import datetime, timedelta  # noqa: E402
 import threading  # noqa: E402
 
-from BE.src.cash_sheet_filler.main import execute  # noqa: E402
+from BE.src.cash_sheet_filler.main import CashSheetAutofillEngine  # noqa: E402
 from BE.src.cash_sheet_filler.config import (  # noqa: E402
     REPORTS_CASHSHEET_MAP, FILL_COL_MAP, CHECKING_COL_MAP,
     INFOR_TENDERS, TAVLO_TENDERS, CASHEET_TENDERS,
+    CASH_SHEET_FOLDER, REPORTS_FOLDER, GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP,
     load_config as load_cash_sheet_config,
     save_config as save_cash_sheet_config,
 )
@@ -169,26 +170,16 @@ class AutoFillCenter(ctk.CTkFrame):
         # Cash Sheet folder
         self._cs_folder1_entry = self._folder_row(
             inner, 1, "📁 Cash Sheet Folder:")
+        self._cs_folder1_entry.configure(state="normal")
+        self._cs_folder1_entry.insert(0, CASH_SHEET_FOLDER)
+        self._cs_folder1_entry.configure(state="readonly")
 
         # Reports folder
         self._cs_folder2_entry = self._folder_row(
             inner, 2, "📊 Day Reports Folder:")
-
-        # Date picker - simple entry with default to yesterday
-        df = ctk.CTkFrame(inner, fg_color="transparent")
-        df.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
-        df.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(df, text="📅 Date:",
-                     font=ctk.CTkFont(family=FONT, size=12),
-                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
-                                               padx=(0, 10))
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%Y")
-        self._cs_date_entry = ctk.CTkEntry(
-            df, height=34, corner_radius=8, border_color=BORDER,
-            border_width=1, fg_color=BG,
-            font=ctk.CTkFont(size=12), text_color=TEXT)
-        self._cs_date_entry.insert(0, yesterday)
-        self._cs_date_entry.grid(row=0, column=1, sticky="ew")
+        self._cs_folder2_entry.configure(state="normal")
+        self._cs_folder2_entry.insert(0, REPORTS_FOLDER)
+        self._cs_folder2_entry.configure(state="readonly")
 
         # Run button
         bf = ctk.CTkFrame(inner, fg_color="transparent")
@@ -259,22 +250,6 @@ class AutoFillCenter(ctk.CTkFrame):
 
         self._tb_file_entry = self._file_row(
             inner, 2, "📄 Breakdown File:")
-
-        # Date
-        df = ctk.CTkFrame(inner, fg_color="transparent")
-        df.grid(row=3, column=0, columnspan=2, sticky="ew", pady=6)
-        df.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(df, text="📅 Date:",
-                     font=ctk.CTkFont(family=FONT, size=12),
-                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w",
-                                               padx=(0, 10))
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%Y")
-        self._tb_date_entry = ctk.CTkEntry(
-            df, height=34, corner_radius=8, border_color=BORDER,
-            border_width=1, fg_color=BG,
-            font=ctk.CTkFont(size=12), text_color=TEXT)
-        self._tb_date_entry.insert(0, yesterday)
-        self._tb_date_entry.grid(row=0, column=1, sticky="ew")
 
         # Run button
         bf = ctk.CTkFrame(inner, fg_color="transparent")
@@ -354,6 +329,29 @@ class AutoFillCenter(ctk.CTkFrame):
         self._cs_loc_container.pack(fill="x")
         self._refresh_cs_loc_table()
 
+        # ── Grubhub Venue Mappings ─────────────────────────────────
+        c_gh = _Card(page)
+        c_gh.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
+        grid_row += 1
+
+        w_gh = ctk.CTkFrame(c_gh, fg_color="transparent")
+        w_gh.pack(fill="x", padx=16, pady=12)
+
+        hdr_gh = ctk.CTkFrame(w_gh, fg_color="transparent")
+        hdr_gh.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(hdr_gh, text="🍔 Grubhub Venue Mappings",
+                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
+                     text_color=TEXT).pack(side="left")
+        self._gh_loc_count = ctk.CTkLabel(
+            hdr_gh, text=f"({len(GRUBHUB_VENUE_MAP)} venues)",
+            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
+        self._gh_loc_count.pack(side="left", padx=(6, 0))
+        _add_button(hdr_gh, self._add_gh_venue)
+
+        self._gh_loc_container = ctk.CTkFrame(w_gh, fg_color="transparent")
+        self._gh_loc_container.pack(fill="x")
+        self._refresh_gh_venue_table()
+
         # ── Fill Column Mappings ───────────────────────────────────
         c2 = _Card(page)
         c2.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
@@ -390,6 +388,8 @@ class AutoFillCenter(ctk.CTkFrame):
         tender_maps = [
             ("📄 Infor Tenders",   "Tender Name", "Internal Key", INFOR_TENDERS),
             ("📄 Tavlo Tenders",   "Tender Name", "Internal Key", TAVLO_TENDERS),
+            ("🍔 Grubhub Tenders", "Payment Method",
+             "Internal Key", GRUBHUB_TENDERS),
             ("📋 Cash Sheet Tenders", "Key", "Default", CASHEET_TENDERS),
         ]
         for heading, kl, vl, data in tender_maps:
@@ -414,6 +414,7 @@ class AutoFillCenter(ctk.CTkFrame):
     # ══════════════════════════════════════════════════════════════
     #  FOLDER / FILE PICKERS
     # ══════════════════════════════════════════════════════════════
+
     def _folder_row(self, parent, grid_r, label):
         rf = ctk.CTkFrame(parent, fg_color="transparent")
         rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=6)
@@ -463,6 +464,21 @@ class AutoFillCenter(ctk.CTkFrame):
             entry.delete(0, "end")
             entry.insert(0, path)
             entry.configure(state="readonly")
+        self._save_config()
+        # Sync the UI: If they changed it in Config, update the Run page (and vice versa)
+        try:
+            # Update Cash Sheet tab boxes
+            self._cs_folder1_entry.configure(state="normal")
+            self._cs_folder1_entry.delete(0, "end")
+            self._cs_folder1_entry.insert(0, self._config_cs_folder.get())
+            self._cs_folder1_entry.configure(state="readonly")
+
+            self._cs_folder2_entry.configure(state="normal")
+            self._cs_folder2_entry.delete(0, "end")
+            self._cs_folder2_entry.insert(0, self._config_rep_folder.get())
+            self._cs_folder2_entry.configure(state="readonly")
+        except AttributeError:
+            pass  # Safe to ignore if a tab hasn't loaded yet
 
     def _pick_file(self, entry):
         path = filedialog.askopenfilename(
@@ -495,13 +511,19 @@ class AutoFillCenter(ctk.CTkFrame):
     def _set_status(self, label, text, color=TEXT_MUTED):
         self.after(0, lambda: label.configure(text=text, text_color=color))
 
-    # ══════════════════════════════════════════════════════════════
-    #  RUN CASH SHEET AUTOFILL
-    # ══════════════════════════════════════════════════════════════
+    # --- Handles the Stop button click ---
+    def _stop_cash_sheet_autofill(self):
+        if hasattr(self, '_cs_stop_event'):
+            self._cs_stop_event.set()  # Send the stop signal
+
+        # Disable the button so they can't click it twice while it's stopping
+        self._cs_run_btn.configure(state="disabled", text="🛑  Stopping...")
+        self._append_log(
+            self._cs_log, "\n⚠️ Stopping autofill process... Please wait.")
+
     def _run_cash_sheet_autofill(self):
         casheet_dir = self._cs_folder1_entry.get().strip()
         reports_dir = self._cs_folder2_entry.get().strip()
-        date_str = self._cs_date_entry.get().strip()
 
         if not casheet_dir:
             messagebox.showwarning("Missing", "Select the Cash Sheet folder.")
@@ -509,13 +531,19 @@ class AutoFillCenter(ctk.CTkFrame):
         if not reports_dir:
             messagebox.showwarning("Missing", "Select the Day Reports folder.")
             return
-        if not date_str:
-            messagebox.showwarning("Missing", "Enter a date.")
-            return
 
-        # Disable button
-        self._cs_run_btn.configure(state="disabled",
-                                   text="⏳  Running...")
+        # Create a new stop event for this run
+        self._cs_stop_event = threading.Event()
+
+        # Change button to STOP mode (Red color, new command)
+        self._cs_run_btn.configure(
+            state="normal",
+            text="🛑  Stop Autofill",
+            fg_color="#D9534F",       # Red
+            hover_color="#C9302C",    # Darker Red
+            command=self._stop_cash_sheet_autofill
+        )
+
         self._clear_log(self._cs_log)
         self._set_status(self._cs_status, "Processing...", ORANGE)
 
@@ -525,13 +553,15 @@ class AutoFillCenter(ctk.CTkFrame):
 
         def _worker():
             try:
-                tracker = execute(
-                    reports_dir, casheet_dir,
-                    report_date=date_str,
+                engine = CashSheetAutofillEngine(
+                    reports_dir=reports_dir,
+                    casheet_dir=casheet_dir,
                     on_event=_on_event,
+                    stop_event=self._cs_stop_event
                 )
+                engine.execute()
                 # Back to main thread for final UI update
-                self.after(0, lambda: self._on_cash_sheet_done(tracker))
+                self.after(0, lambda: self._on_cash_sheet_done(engine.tracker))
             except Exception as exc:
                 self._append_log(self._cs_log, f"\n❌ Unexpected error: {exc}")
                 self.after(0, lambda: self._on_cash_sheet_done(None))
@@ -539,10 +569,25 @@ class AutoFillCenter(ctk.CTkFrame):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_cash_sheet_done(self, tracker):
-        self._cs_run_btn.configure(state="normal",
-                                   text="🚀  Run Cash Sheet Autofill")
+        import customtkinter as ctk  # Just in case it's not imported at the top
+
+        # Reset the button back to standard Run mode (Blue color, normal command)
+        self._cs_run_btn.configure(
+            state="normal",
+            text="🚀  Run Cash Sheet Autofill",
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            command=self._run_cash_sheet_autofill
+        )
+
         if tracker is None:
             self._set_status(self._cs_status, "Error", RED)
+            return
+
+        # Check if the process finished because the user cancelled it
+        if hasattr(self, '_cs_stop_event') and self._cs_stop_event.is_set():
+            self._set_status(self._cs_status, "Cancelled", ORANGE)
+            self._append_log(
+                self._cs_log, "\n🛑 Autofill process was cancelled by user.")
             return
 
         s = len(tracker.successful)
@@ -555,10 +600,10 @@ class AutoFillCenter(ctk.CTkFrame):
         else:
             self._set_status(self._cs_status,
                              f"Done: {s} ok, {f} failed, {w} warnings", RED)
-
     # ══════════════════════════════════════════════════════════════
     #  RUN TENDER BREAKDOWN (placeholder)
     # ══════════════════════════════════════════════════════════════
+
     def _run_tender_autofill(self):
         self._append_log(self._tb_log,
                          "Tender Breakdown autofill not yet implemented.")
@@ -724,6 +769,31 @@ class AutoFillCenter(ctk.CTkFrame):
     # ══════════════════════════════════════════════════════════════
     #  DIALOG + CRUD OPERATIONS
     # ══════════════════════════════════════════════════════════════
+    def _save_config(self):
+        # Grab paths from the new Config Page boxes
+        try:
+            reports_dir = self._config_rep_folder.get().strip()
+            casheet_dir = self._config_cs_folder.get().strip()
+        except AttributeError:
+            # Fallback if the UI hasn't fully loaded yet
+            reports_dir = REPORTS_FOLDER
+            casheet_dir = CASH_SHEET_FOLDER
+
+        full_config = {
+            "reports_cashsheet_map": REPORTS_CASHSHEET_MAP,
+            "grubhub_venue_map": GRUBHUB_VENUE_MAP,
+            "fill_col_map": FILL_COL_MAP,
+            "checking_col_map": CHECKING_COL_MAP,
+            "infor_tenders": INFOR_TENDERS,
+            "tavlo_tenders": TAVLO_TENDERS,
+            "grubhub_tenders": GRUBHUB_TENDERS,
+            "casheet_tenders": CASHEET_TENDERS,
+            "summary_data_map": {},
+            "reports_folder": reports_dir,
+            "cash_sheets_folder": casheet_dir
+        }
+        save_cash_sheet_config(full_config)
+
     def _input_dialog(self, title, fields, defaults=None):
         """Modal dialog returning dict of field->value, or None on cancel."""
         dlg = ctk.CTkToplevel(self)
@@ -775,6 +845,7 @@ class AutoFillCenter(ctk.CTkFrame):
         if r and r["Report Name"]:
             REPORTS_CASHSHEET_MAP[r["Report Name"]] = [r["Cash Sheet"],
                                                        r["Register"]]
+            self._save_config()  # Save after adding a new location
             self._refresh_cs_loc_table()
 
     def _edit_cs_row(self, report_name):
@@ -790,12 +861,107 @@ class AutoFillCenter(ctk.CTkFrame):
         if r:
             REPORTS_CASHSHEET_MAP[report_name] = [r["Cash Sheet"],
                                                   r["Register"]]
+            self._save_config()  # Save after editing a location
             self._refresh_cs_loc_table()
 
     def _del_cs_loc(self, name):
         if messagebox.askyesno("Delete", f"Delete '{name}'?"):
             REPORTS_CASHSHEET_MAP.pop(name, None)
             self._refresh_cs_loc_table()
+            self._save_config()  # Save after deleting a location
+        # -- Grubhub Venue CRUD --
+
+    def _refresh_gh_venue_table(self):
+        for w in self._gh_loc_container.winfo_children():
+            w.destroy()
+        if hasattr(self, "_gh_loc_count"):
+            self._gh_loc_count.configure(
+                text=f"({len(GRUBHUB_VENUE_MAP)} venues)")
+
+        tbl = ctk.CTkFrame(self._gh_loc_container, fg_color=BG,
+                           corner_radius=8)
+        tbl.pack(fill="x")
+
+        # Header
+        hr = ctk.CTkFrame(tbl, fg_color="transparent")
+        hr.pack(fill="x", padx=12, pady=(8, 4))
+        for col, (txt, wt) in enumerate([
+            ("Grubhub Venue", 1), ("Cash Sheet", 1), ("Register", 1), ("", 0)
+        ]):
+            hr.grid_columnconfigure(col, weight=wt)
+            ctk.CTkLabel(hr, text=txt,
+                         font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
+                         text_color=TEXT_MUTED).grid(
+                row=0, column=col, sticky="w",
+                padx=(0 if col == 0 else 16, 0))
+
+        for i, (venue, mapping_val) in enumerate(
+                GRUBHUB_VENUE_MAP.items()):
+            if isinstance(mapping_val, (list, tuple)) and len(mapping_val) >= 2:
+                sheet, register = mapping_val[0], mapping_val[1]
+            else:
+                sheet, register = str(mapping_val), ""
+
+            r = ctk.CTkFrame(tbl, fg_color=CARD if i % 2 == 0 else BG,
+                             corner_radius=4, height=30)
+            r.pack(fill="x", padx=6, pady=1)
+            r.pack_propagate(False)
+            for c in range(5):
+                r.grid_columnconfigure(c, weight=1 if c < 3 else 0)
+            ctk.CTkLabel(r, text=venue,
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT).grid(row=0, column=0, sticky="w", padx=10)
+            ctk.CTkLabel(r, text=sheet,
+                         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                         text_color=PURPLE).grid(row=0, column=1, sticky="w", padx=(16, 0))
+            ctk.CTkLabel(r, text=register,
+                         font=ctk.CTkFont(family=FONT, size=11),
+                         text_color=TEXT_SEC).grid(row=0, column=2, sticky="w", padx=(16, 0))
+            ctk.CTkButton(
+                r, text="✏️", width=26, height=22, corner_radius=5,
+                fg_color=ORANGE_BG, text_color=ORANGE, hover_color="#FFE8CC",
+                font=ctk.CTkFont(size=10),
+                command=lambda v=venue: self._edit_gh_venue(v),
+                cursor="hand2",
+            ).grid(row=0, column=3, padx=(8, 2))
+            ctk.CTkButton(
+                r, text="🗑", width=26, height=22, corner_radius=5,
+                fg_color=RED_BG, text_color=RED, hover_color="#FFCCC9",
+                font=ctk.CTkFont(size=10),
+                command=lambda v=venue: self._del_gh_venue(v),
+                cursor="hand2",
+            ).grid(row=0, column=4, padx=(2, 10))
+
+    def _add_gh_venue(self):
+        r = self._input_dialog("Add Grubhub Venue",
+                               ["Grubhub Venue", "Cash Sheet", "Register"])
+        if r and r["Grubhub Venue"]:
+            GRUBHUB_VENUE_MAP[r["Grubhub Venue"]] = [r["Cash Sheet"],
+                                                     r["Register"]]
+            self._save_config()
+            self._refresh_gh_venue_table()
+
+    def _edit_gh_venue(self, venue_name):
+        mapping_val = GRUBHUB_VENUE_MAP[venue_name]
+        if isinstance(mapping_val, (list, tuple)) and len(mapping_val) >= 2:
+            sheet, register = mapping_val[0], mapping_val[1]
+        else:
+            sheet, register = str(mapping_val), ""
+        r = self._input_dialog(
+            f"Edit: {venue_name}",
+            ["Cash Sheet", "Register"],
+            defaults={"Cash Sheet": sheet, "Register": register})
+        if r:
+            GRUBHUB_VENUE_MAP[venue_name] = [r["Cash Sheet"],
+                                             r["Register"]]
+            self._save_config()
+            self._refresh_gh_venue_table()
+
+    def _del_gh_venue(self, name):
+        if messagebox.askyesno("Delete", f"Delete '{name}'?"):
+            GRUBHUB_VENUE_MAP.pop(name, None)
+            self._save_config()
+            self._refresh_gh_venue_table()
 
     # -- Key/Value CRUD --
     def _add_kv(self, mapping, container):
@@ -805,6 +971,7 @@ class AutoFillCenter(ctk.CTkFrame):
                 mapping[r["Field Name"]] = int(r["Column Number"])
             except ValueError:
                 mapping[r["Field Name"]] = r["Column Number"]
+            self._save_config()  # Save after adding a new mapping
             self._refresh_kv_table(container, mapping)
 
     def _edit_kv_row(self, mapping, key, container):
@@ -818,11 +985,13 @@ class AutoFillCenter(ctk.CTkFrame):
                 mapping[key] = int(r["Column Number"])
             except ValueError:
                 mapping[key] = r["Column Number"]
+            self._save_config()  # Save after editing a mapping
             self._refresh_kv_table(container, mapping)
 
     def _del_kv(self, mapping, key, container):
         if messagebox.askyesno("Delete", f"Delete '{key}'?"):
             mapping.pop(key, None)
+            self._save_config()  # Save after deleting a mapping
             self._refresh_kv_table(container, mapping)
 
     # -- Tender Mapping CRUD --
@@ -835,6 +1004,7 @@ class AutoFillCenter(ctk.CTkFrame):
             except ValueError:
                 pass
             mapping[r[kl].strip()] = new_val
+            self._save_config()  # Save after adding a new tender mapping
             self._refresh_tender_table(container, mapping, kl, vl)
 
     def _edit_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
@@ -853,11 +1023,13 @@ class AutoFillCenter(ctk.CTkFrame):
             if new_key != key:
                 mapping.pop(key, None)
             mapping[new_key] = new_val
+            self._save_config()  # Save after editing a tender mapping
             self._refresh_tender_table(container, mapping, kl, vl)
 
     def _del_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
         if messagebox.askyesno("Delete", f"Delete '{key}'?"):
             mapping.pop(key, None)
+            self._save_config()  # Save after deleting a tender mapping
             self._refresh_tender_table(container, mapping, kl, vl)
 
 
