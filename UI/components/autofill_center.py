@@ -169,14 +169,14 @@ class AutoFillCenter(ctk.CTkFrame):
 
         # Cash Sheet folder
         self._cs_folder1_entry = self._folder_row(
-            inner, 1, "📁 Cash Sheet Folder:")
+            inner, 1, "📁 Cash Sheet Folder:", sync_target="cash_sheet")
         self._cs_folder1_entry.configure(state="normal")
         self._cs_folder1_entry.insert(0, CASH_SHEET_FOLDER)
         self._cs_folder1_entry.configure(state="readonly")
 
         # Reports folder
         self._cs_folder2_entry = self._folder_row(
-            inner, 2, "📊 Day Reports Folder:")
+            inner, 2, "📊 Day Reports Folder:", sync_target="reports")
         self._cs_folder2_entry.configure(state="normal")
         self._cs_folder2_entry.insert(0, REPORTS_FOLDER)
         self._cs_folder2_entry.configure(state="readonly")
@@ -306,9 +306,37 @@ class AutoFillCenter(ctk.CTkFrame):
 
         grid_row = 0
 
+        # ══════════════════════════════════════════════════════════
+        #  FIX: Folder Paths card (was completely missing)
+        # ══════════════════════════════════════════════════════════
+        c_paths = _Card(page)
+        c_paths.grid(row=grid_row, column=0,
+                     sticky="ew", padx=20, pady=(12, 8))
+        grid_row += 1
+
+        w_paths = ctk.CTkFrame(c_paths, fg_color="transparent")
+        w_paths.pack(fill="x", padx=16, pady=12)
+        w_paths.grid_columnconfigure(1, weight=1)
+
+        _section_label(w_paths, "📂 Folder Paths", grid_pos=(0, 0, 2))
+
+        # Cash Sheet folder (config version — this is the "source of truth")
+        self._config_cs_folder = self._folder_row(
+            w_paths, 1, "📁 Cash Sheet Folder:", sync_target="cash_sheet")
+        self._config_cs_folder.configure(state="normal")
+        self._config_cs_folder.insert(0, CASH_SHEET_FOLDER)
+        self._config_cs_folder.configure(state="readonly")
+
+        # Reports folder (config version — this is the "source of truth")
+        self._config_rep_folder = self._folder_row(
+            w_paths, 2, "📊 Day Reports Folder:", sync_target="reports")
+        self._config_rep_folder.configure(state="normal")
+        self._config_rep_folder.insert(0, REPORTS_FOLDER)
+        self._config_rep_folder.configure(state="readonly")
+
         # ── Location Mappings ──────────────────────────────────────
         c1 = _Card(page)
-        c1.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(12, 8))
+        c1.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
         grid_row += 1
 
         w1 = ctk.CTkFrame(c1, fg_color="transparent")
@@ -415,7 +443,14 @@ class AutoFillCenter(ctk.CTkFrame):
     #  FOLDER / FILE PICKERS
     # ══════════════════════════════════════════════════════════════
 
-    def _folder_row(self, parent, grid_r, label):
+    def _folder_row(self, parent, grid_r, label, sync_target=None):
+        """
+        Build a folder picker row.
+
+        Args:
+            sync_target: "cash_sheet" or "reports" — tells _pick_folder
+                         which entries to sync across tabs.
+        """
         rf = ctk.CTkFrame(parent, fg_color="transparent")
         rf.grid(row=grid_r, column=0, columnspan=2, sticky="ew", pady=6)
         rf.grid_columnconfigure(1, weight=1)
@@ -432,7 +467,8 @@ class AutoFillCenter(ctk.CTkFrame):
             fg_color=PURPLE_LIGHT, text_color=PURPLE,
             hover_color=PURPLE_SUBTLE,
             font=ctk.CTkFont(family=FONT, size=11),
-            command=lambda: self._pick_folder(entry), cursor="hand2",
+            command=lambda: self._pick_folder(entry, sync_target),
+            cursor="hand2",
         ).grid(row=0, column=2)
         return entry
 
@@ -457,28 +493,47 @@ class AutoFillCenter(ctk.CTkFrame):
         ).grid(row=0, column=2)
         return entry
 
-    def _pick_folder(self, entry):
+    def _pick_folder(self, entry, sync_target=None):
+        """
+        Open folder picker, update the entry, then sync the same value
+        across all tabs that share this folder path.
+
+        sync_target:
+            "cash_sheet" → sync _cs_folder1_entry ↔ _config_cs_folder
+            "reports"    → sync _cs_folder2_entry ↔ _config_rep_folder
+        """
         path = filedialog.askdirectory(title="Select Folder")
-        if path:
+        if not path:
+            return
+
+        # Update the entry that was clicked
+        entry.configure(state="normal")
+        entry.delete(0, "end")
+        entry.insert(0, path)
+        entry.configure(state="readonly")
+
+        # Sync across tabs: whichever entry WASN'T clicked gets updated too
+        if sync_target == "cash_sheet":
+            for other in (self._cs_folder1_entry, self._config_cs_folder):
+                if other is not entry:
+                    self._set_entry(other, path)
+
+        elif sync_target == "reports":
+            for other in (self._cs_folder2_entry, self._config_rep_folder):
+                if other is not entry:
+                    self._set_entry(other, path)
+
+        self._save_config()
+
+    def _set_entry(self, entry, value):
+        """Safely set a readonly entry's value."""
+        try:
             entry.configure(state="normal")
             entry.delete(0, "end")
-            entry.insert(0, path)
+            entry.insert(0, value)
             entry.configure(state="readonly")
-        self._save_config()
-        # Sync the UI: If they changed it in Config, update the Run page (and vice versa)
-        try:
-            # Update Cash Sheet tab boxes
-            self._cs_folder1_entry.configure(state="normal")
-            self._cs_folder1_entry.delete(0, "end")
-            self._cs_folder1_entry.insert(0, self._config_cs_folder.get())
-            self._cs_folder1_entry.configure(state="readonly")
-
-            self._cs_folder2_entry.configure(state="normal")
-            self._cs_folder2_entry.delete(0, "end")
-            self._cs_folder2_entry.insert(0, self._config_rep_folder.get())
-            self._cs_folder2_entry.configure(state="readonly")
-        except AttributeError:
-            pass  # Safe to ignore if a tab hasn't loaded yet
+        except (AttributeError, Exception):
+            pass  # Widget might not exist yet during init
 
     def _pick_file(self, entry):
         path = filedialog.askopenfilename(
@@ -569,9 +624,7 @@ class AutoFillCenter(ctk.CTkFrame):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_cash_sheet_done(self, tracker):
-        import customtkinter as ctk  # Just in case it's not imported at the top
-
-        # Reset the button back to standard Run mode (Blue color, normal command)
+        # Reset the button back to standard Run mode
         self._cs_run_btn.configure(
             state="normal",
             text="🚀  Run Cash Sheet Autofill",
@@ -600,6 +653,7 @@ class AutoFillCenter(ctk.CTkFrame):
         else:
             self._set_status(self._cs_status,
                              f"Done: {s} ok, {f} failed, {w} warnings", RED)
+
     # ══════════════════════════════════════════════════════════════
     #  RUN TENDER BREAKDOWN (placeholder)
     # ══════════════════════════════════════════════════════════════
@@ -770,13 +824,19 @@ class AutoFillCenter(ctk.CTkFrame):
     #  DIALOG + CRUD OPERATIONS
     # ══════════════════════════════════════════════════════════════
     def _save_config(self):
-        # Grab paths from the new Config Page boxes
+        """
+        Read folder paths from the Config tab entries (source of truth),
+        then save the full config to JSON.
+        """
+        # Read from the Config page entries (the canonical source)
         try:
             reports_dir = self._config_rep_folder.get().strip()
+        except AttributeError:
+            reports_dir = REPORTS_FOLDER
+
+        try:
             casheet_dir = self._config_cs_folder.get().strip()
         except AttributeError:
-            # Fallback if the UI hasn't fully loaded yet
-            reports_dir = REPORTS_FOLDER
             casheet_dir = CASH_SHEET_FOLDER
 
         full_config = {
@@ -845,7 +905,7 @@ class AutoFillCenter(ctk.CTkFrame):
         if r and r["Report Name"]:
             REPORTS_CASHSHEET_MAP[r["Report Name"]] = [r["Cash Sheet"],
                                                        r["Register"]]
-            self._save_config()  # Save after adding a new location
+            self._save_config()
             self._refresh_cs_loc_table()
 
     def _edit_cs_row(self, report_name):
@@ -861,16 +921,16 @@ class AutoFillCenter(ctk.CTkFrame):
         if r:
             REPORTS_CASHSHEET_MAP[report_name] = [r["Cash Sheet"],
                                                   r["Register"]]
-            self._save_config()  # Save after editing a location
+            self._save_config()
             self._refresh_cs_loc_table()
 
     def _del_cs_loc(self, name):
         if messagebox.askyesno("Delete", f"Delete '{name}'?"):
             REPORTS_CASHSHEET_MAP.pop(name, None)
             self._refresh_cs_loc_table()
-            self._save_config()  # Save after deleting a location
-        # -- Grubhub Venue CRUD --
+            self._save_config()
 
+    # -- Grubhub Venue CRUD --
     def _refresh_gh_venue_table(self):
         for w in self._gh_loc_container.winfo_children():
             w.destroy()
@@ -971,7 +1031,7 @@ class AutoFillCenter(ctk.CTkFrame):
                 mapping[r["Field Name"]] = int(r["Column Number"])
             except ValueError:
                 mapping[r["Field Name"]] = r["Column Number"]
-            self._save_config()  # Save after adding a new mapping
+            self._save_config()
             self._refresh_kv_table(container, mapping)
 
     def _edit_kv_row(self, mapping, key, container):
@@ -985,13 +1045,13 @@ class AutoFillCenter(ctk.CTkFrame):
                 mapping[key] = int(r["Column Number"])
             except ValueError:
                 mapping[key] = r["Column Number"]
-            self._save_config()  # Save after editing a mapping
+            self._save_config()
             self._refresh_kv_table(container, mapping)
 
     def _del_kv(self, mapping, key, container):
         if messagebox.askyesno("Delete", f"Delete '{key}'?"):
             mapping.pop(key, None)
-            self._save_config()  # Save after deleting a mapping
+            self._save_config()
             self._refresh_kv_table(container, mapping)
 
     # -- Tender Mapping CRUD --
@@ -1004,7 +1064,7 @@ class AutoFillCenter(ctk.CTkFrame):
             except ValueError:
                 pass
             mapping[r[kl].strip()] = new_val
-            self._save_config()  # Save after adding a new tender mapping
+            self._save_config()
             self._refresh_tender_table(container, mapping, kl, vl)
 
     def _edit_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
@@ -1023,13 +1083,13 @@ class AutoFillCenter(ctk.CTkFrame):
             if new_key != key:
                 mapping.pop(key, None)
             mapping[new_key] = new_val
-            self._save_config()  # Save after editing a tender mapping
+            self._save_config()
             self._refresh_tender_table(container, mapping, kl, vl)
 
     def _del_tender_row(self, mapping, key, container, kl="Key", vl="Value"):
         if messagebox.askyesno("Delete", f"Delete '{key}'?"):
             mapping.pop(key, None)
-            self._save_config()  # Save after deleting a tender mapping
+            self._save_config()
             self._refresh_tender_table(container, mapping, kl, vl)
 
 

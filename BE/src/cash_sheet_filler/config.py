@@ -2,11 +2,6 @@
 import json
 from pathlib import Path
 
-
-# ═══════════════════════════════════════════════════════════════
-#  LOAD CONFIGURATION FROM JSON
-# ═══════════════════════════════════════════════════════════════
-
 CONFIG_FILE = Path(__file__).parent / "cash_sheet_config.json"
 
 
