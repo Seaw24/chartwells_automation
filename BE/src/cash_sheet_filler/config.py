@@ -1,8 +1,32 @@
 # config.py
+import sys
 import json
+import shutil
 from pathlib import Path
 
-CONFIG_FILE = Path(__file__).parent / "cash_sheet_config.json"
+
+def _get_config_path():
+    """
+    Editable config lives next to the .exe (or in dev, next to this file).
+    On first run, copy the bundled default to the editable location.
+    """
+    filename = "cash_sheet_config.json"
+
+    if getattr(sys, 'frozen', False):
+        # Editable: same folder as the .exe
+        editable = Path(sys.executable).parent / "config" / filename
+        # Bundled default (read-only, inside _MEIPASS)
+        bundled = Path(sys._MEIPASS) / "BE" / "src" / \
+            "cash_sheet_filler" / filename
+        if not editable.exists():
+            editable.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bundled, editable)
+        return editable
+    else:
+        return Path(__file__).parent / filename
+
+
+CONFIG_FILE = _get_config_path()
 
 
 def load_config():
@@ -13,7 +37,6 @@ def load_config():
             config = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON from configuration file: {e}")
-
     return config
 
 
@@ -26,10 +49,6 @@ def save_config(config):
 
 
 _config = load_config()
-
-# ═══════════════════════════════════════════════════════════════
-#  EXPORT CONFIG VARIABLES
-# ═══════════════════════════════════════════════════════════════
 
 REPORTS_CASHSHEET_MAP = _config["reports_cashsheet_map"]
 FILL_COL_MAP = _config["fill_col_map"]

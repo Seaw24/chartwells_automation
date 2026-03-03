@@ -1,22 +1,96 @@
 {
   "filename_to_master_name": {
-    "beanyard": [{ "beanyard": "TOTALS" }],
-    "crimson corner": [{ "crimson corner": "TOTALS" }],
-    "unionshakesmart": [{ "union shake smart": "TOTALS" }],
-    "gardner": [{ "gardner": "TOTALS" }],
-    "honors": [{ "honors": "TOTALS" }],
-    "heritage": [{ "phc": ["Heritage 1", "Heritage 2"] }],
-    "kv": [{ "kahlert": "TOTALS" }],
-    "shake smart ": [{ "student life center": "TOTALS" }],
-    "epicenter": [{ "epicenter": "TOTALS" }],
-    "cv casheet": [{ "crimson view": "TOTALS" }],
-    "lassonde": [{ "lassonde": "TOTALS" }],
-    "satellite": [{ "einsteins": "TOTALS" }],
-    "hecs": [{ "hive": "Hive Tavlo" }, { "quartzdyne": "Quartz Café" }],
-    "hub": [{ "city's edge": "TOTALS" }],
-    "crss": [{ "seagull sunrise": "TOTALS" }],
-    "csfs": [{ "union food court": "TOTALS" }],
-    "shake smart": [{ "student life center": "TOTALS" }]
+    "beanyard": [
+      {
+        "beanyard": "TOTALS"
+      }
+    ],
+    "crimson corner": [
+      {
+        "crimson corner": "TOTALS"
+      }
+    ],
+    "unionshakesmart": [
+      {
+        "union shake smart": "TOTALS"
+      }
+    ],
+    "gardner": [
+      {
+        "gardner": "TOTALS"
+      }
+    ],
+    "honors": [
+      {
+        "honors": "TOTALS"
+      }
+    ],
+    "heritage": [
+      {
+        "phc": [
+          "Heritage 1",
+          "Heritage 2"
+        ]
+      }
+    ],
+    "kv": [
+      {
+        "kahlert": "TOTALS"
+      }
+    ],
+    "shake smart ": [
+      {
+        "student life center": "TOTALS"
+      }
+    ],
+    "epicenter": [
+      {
+        "epicenter": "TOTALS"
+      }
+    ],
+    "lassonde": [
+      {
+        "lassonde": "TOTALS"
+      }
+    ],
+    "satellite": [
+      {
+        "einsteins": "TOTALS"
+      }
+    ],
+    "hecs": [
+      {
+        "hive": "Hive Tavlo"
+      },
+      {
+        "quartzdyne": "Quartz Café"
+      }
+    ],
+    "crss": [
+      {
+        "seagull sunrise": "TOTALS"
+      }
+    ],
+    "csfs": [
+      {
+        "union food court": "TOTALS"
+      }
+    ],
+    "shake smart": [
+      {
+        "student life center": "TOTALS"
+      }
+    ],
+    "city's edge": [
+      {
+        "city's edge": "TOTALS"
+      }
+    ],
+    "cv": [
+      {
+        "crimson view": "TOTALS"
+      }
+    ]
   },
   "location_start_col": {
     "phc": 2,
@@ -38,8 +112,22 @@
     "city's edge": 194
   },
   "directory_paths": {
-    "casheets_dir": "cash sheets",
-    "master_path": "Tender Breakdown.xlsx"
+    "casheets_dir": "C:/Users/admin/Downloads/testing/cash sheets",
+    "master_path": "C:/Users/admin/Downloads/testing/cash sheets/Satellite 02-12-26.xlsx"
   },
-  "important_casheet_data_col": [3, 4, 6, 7, 8, 11, 13, 16, 17, 18, 19]
+  "important_casheet_data_col": [
+    3,
+    4,
+    6,
+    7,
+    8,
+    11,
+    13,
+    16,
+    17,
+    18,
+    19
+  ],
+  "first_date_row": 3,
+  "date_col": 21
 }

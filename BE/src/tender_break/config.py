@@ -1,11 +1,16 @@
+# config.py
+import sys
 import json
 from pathlib import Path
 
-# ═══════════════════════════════════════════════════════════════
-#  LOAD CONFIGURATION FROM JSON
-# ═══════════════════════════════════════════════════════════════
 
-CONFIG_FILE = Path(__file__).parent / "tender_config.json"
+def _get_config_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys._MEIPASS) / "BE" / "src" / "tender_break"
+    return Path(__file__).parent
+
+
+CONFIG_FILE = _get_config_dir() / "tender_config.json"
 
 
 def load_config():
@@ -16,7 +21,6 @@ def load_config():
             config = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Error decoding JSON from configuration file: {e}")
-
     return config
 
 
@@ -38,3 +42,5 @@ FILENAME_TO_MASTER_NAME = _config["filename_to_master_name"]
 LOCATION_START_COL = _config["location_start_col"]
 DIRECTORY_PATHS = _config["directory_paths"]
 IMPORTANT_CASHEET_DATA_COL = _config["important_casheet_data_col"]
+FIRST_DATE_ROW = _config.get("first_date_row", 3)
+DATE_COL = _config.get("date_col", 21)
