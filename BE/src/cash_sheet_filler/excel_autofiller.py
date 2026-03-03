@@ -5,10 +5,7 @@ Handles automated filling of cash sheet Excel workbooks with parsed sales data.
 
 from openpyxl import load_workbook
 import traceback
-try:
-    from .config import FILL_COL_MAP, CHECKING_COL_MAP
-except ImportError:
-    from config import FILL_COL_MAP, CHECKING_COL_MAP
+from .config import FILL_COL_MAP, CHECKING_COL_MAP
 from ..utils import strip_accents
 
 
@@ -99,30 +96,31 @@ class ExcelAutofiller:
             return False
 
     def find_row(self):
-        """
-        Search for the location name in the worksheet and set the current row.
-
-        Returns:
-            bool: True if location found, False otherwise
-        """
         location_col = FILL_COL_MAP.get("location")
-
         if location_col is None:
             self._log_error("'location' column not defined in FILL_COL_MAP")
             return False
 
-        # Search through rows starting from start_row
+        target = strip_accents(self.location.strip().lower())
+
+        # Pass 1: exact match
         for r in range(self.start_row, self.ws.max_row + 1):
             cell_value = self.ws.cell(r, location_col).value
-
-            # Check if cell has value and matches location (case-insensitive, stripped)
-            if cell_value and strip_accents(cell_value.strip().lower()) == strip_accents(self.location.lower()):
+            if cell_value and strip_accents(cell_value.strip().lower()) == target:
                 self.row = r
                 self._log(
                     f"  ✓ Found location '{self.location}' at row {self.row}")
                 return True
 
-        # Location not found
+        # Pass 2: contains fallback (e.g. "grubhub" in "City Edge - grubhub")
+        for r in range(self.start_row, self.ws.max_row + 1):
+            cell_value = self.ws.cell(r, location_col).value
+            if cell_value and target in strip_accents(cell_value.strip().lower()):
+                self.row = r
+                self._log(
+                    f"  ✓ Found location '{self.location}' via partial match at row {self.row}")
+                return True
+
         self._log_error(
             f"Location '{self.location}' not found in column {location_col}")
         return False

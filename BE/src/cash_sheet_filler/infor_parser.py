@@ -4,12 +4,8 @@ Parses Infor point-of-sale system CSV reports.
 """
 
 import traceback
-try:
-    from .config import INFOR_TENDERS, CASHEET_TENDERS
-    from .base_parser import BaseParser
-except ImportError:
-    from config import INFOR_TENDERS, CASHEET_TENDERS
-    from base_parser import BaseParser
+from .config import INFOR_TENDERS, CASHEET_TENDERS
+from .base_parser import BaseParser
 from dateutil.parser import parse
 
 from ..utils import strip_accents
@@ -199,9 +195,11 @@ class InforParser(BaseParser):
                                 unrecognized_tenders.append(tender_name)
                                 continue
                             casheet_tender_name = INFOR_TENDERS[tender_name]
-                            self.data['tenders'][casheet_tender_name] = tender_amount
+                            self.data['tenders'][casheet_tender_name] += tender_amount
                             total_tender += tender_amount
                             recognized_count += 1
+                            self._log(
+                                f"   ✓ Recognized tender: '{tender_name}' mapped to '{casheet_tender_name}' with amount ${tender_amount:.2f} make  it to be {self.data['tenders'][casheet_tender_name]:.2f}")
                         except ValueError:
                             self._log_warning(
                                 f"Invalid amount for tender '{tender_name}'")

@@ -14,6 +14,11 @@ except ImportError:
 _LOGO_PATH = Path(__file__).resolve().parent.parent.parent / \
     "logo" / "chartwells.jfif"
 
+# ── Support Contact Info (edit these) ────────────────────────────────
+SUPPORT_NAME = "Duc Nam Nguyen"
+SUPPORT_PHONE = "(360) 223 - 9663"
+SUPPORT_EMAIL = "ducnam883@gmail.com"
+
 
 class SideBar(ctk.CTkFrame):
     """Purple sidebar with icon-only collapsed state and labelled expanded state."""
@@ -36,6 +41,7 @@ class SideBar(ctk.CTkFrame):
         self._current_width = self.COLLAPSED_W
         self._poll_id = None
         self._active_key: str | None = None
+        self._support_popup = None
 
         nav_callbacks = nav_callbacks or {}
 
@@ -59,7 +65,7 @@ class SideBar(ctk.CTkFrame):
         bot_frame.grid(row=2, column=0, sticky="ew", pady=(0, 14))
         self._bottom_buttons: list[dict] = []
         for key, icon, text, cmd in [
-            ("support",  "🎧", "Support", lambda: None),
+            ("support",  "🎧", "Support", self._show_support_popup),
             ("settings", "⚙️", "Settings", lambda: None),
         ]:
             self._add_button(bot_frame, key, icon, text, cmd,
@@ -67,6 +73,79 @@ class SideBar(ctk.CTkFrame):
 
         # ── hover bindings ───────────────────────────────────────────
         self._bind_enter_recursive(self)
+
+    # ── Support Popup ────────────────────────────────────────────────
+    def _show_support_popup(self):
+        """Show a small popup with developer contact info."""
+        if self._support_popup and self._support_popup.winfo_exists():
+            self._support_popup.focus()
+            return
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("Support")
+        popup.geometry("340x260")
+        popup.resizable(False, False)
+        popup.configure(fg_color="#F5F5F7")
+        popup.grab_set()
+        self._support_popup = popup
+
+        # ── Header ──
+        hdr = ctk.CTkFrame(popup, fg_color="transparent")
+        hdr.pack(fill="x", padx=24, pady=(20, 0))
+
+        icon_box = ctk.CTkFrame(hdr, width=40, height=40, corner_radius=10,
+                                fg_color="#EDE9FF")
+        icon_box.pack(side="left", padx=(0, 12))
+        icon_box.pack_propagate(False)
+        ctk.CTkLabel(icon_box, text="🎧", font=ctk.CTkFont(size=18)).place(
+            relx=0.5, rely=0.5, anchor="center")
+
+        title_frame = ctk.CTkFrame(hdr, fg_color="transparent")
+        title_frame.pack(side="left")
+        ctk.CTkLabel(title_frame, text="Need Help?",
+                     font=ctk.CTkFont(family="Arial", size=18, weight="bold"),
+                     text_color="#1a1a1a").pack(anchor="w")
+        ctk.CTkLabel(title_frame, text="Reach out to the developer",
+                     font=ctk.CTkFont(family="Arial", size=11),
+                     text_color="#8E8E93").pack(anchor="w")
+
+        # ── Divider ──
+        ctk.CTkFrame(popup, fg_color="#E5E5EA", height=1).pack(
+            fill="x", padx=24, pady=(16, 0))
+
+        # ── Contact Card ──
+        card = ctk.CTkFrame(popup, fg_color="#FFFFFF", corner_radius=12,
+                            border_width=1, border_color="#E5E5EA")
+        card.pack(fill="x", padx=24, pady=(16, 0))
+
+        info_frame = ctk.CTkFrame(card, fg_color="transparent")
+        info_frame.pack(fill="x", padx=16, pady=14)
+
+        contact_items = [
+            ("👤", "Name", SUPPORT_NAME),
+            ("📞", "Phone", SUPPORT_PHONE),
+            ("📧", "Email", SUPPORT_EMAIL),
+        ]
+        for i, (icon, label, value) in enumerate(contact_items):
+            row = ctk.CTkFrame(info_frame, fg_color="transparent")
+            row.pack(fill="x", pady=(0 if i == 0 else 6, 0))
+
+            ctk.CTkLabel(row, text=icon,
+                         font=ctk.CTkFont(size=13)).pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(row, text=f"{label}:",
+                         font=ctk.CTkFont(family="Arial", size=12),
+                         text_color="#8E8E93").pack(side="left")
+            ctk.CTkLabel(row, text=value,
+                         font=ctk.CTkFont(
+                             family="Arial", size=12, weight="bold"),
+                         text_color="#1a1a1a").pack(side="left", padx=(6, 0))
+
+        # ── Close button ──
+        ctk.CTkButton(popup, text="Close", width=100, height=32,
+                      corner_radius=8, fg_color=self.BG,
+                      hover_color=self.HOVER_BG,
+                      font=ctk.CTkFont(family="Arial", size=12),
+                      command=popup.destroy).pack(pady=(14, 16))
 
     # ── logo ─────────────────────────────────────────────────────────
     def _build_logo(self):

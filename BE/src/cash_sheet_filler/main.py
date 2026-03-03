@@ -4,6 +4,7 @@ Processes Infor (CSV), Tavlo (XLS/XML), and Grubhub (CSV) reports
 and fills the corresponding cash sheet Excel workbooks.
 """
 
+from calendar import weekday
 import os
 from datetime import date, timedelta
 from dateutil.parser import parse as dateutil_parse
@@ -111,12 +112,16 @@ class ProcessingTracker:
 class CashSheetAutofillEngine:
     """Core engine to process reports and fill cash sheets."""
 
-    def __init__(self, reports_dir, casheet_dir, on_event=None, stop_event=None):
+    def __init__(self, reports_dir, casheet_dir, on_event=None, stop_event=None, auto_print=False, printer_name=None):
         self.casheet_dir = casheet_dir
         self.reports_dir = reports_dir
         self.tracker = ProcessingTracker(on_event=on_event)
         self.casheet_files = []
         self.stop_event = stop_event
+        self.auto_print = auto_print
+        self.printer_name = printer_name
+        self.filled_days = set()
+
     # ═══════════════════════════════════════════════════════════════
     #  MAIN EXECUTE
     # ═══════════════════════════════════════════════════════════════
@@ -152,7 +157,7 @@ class CashSheetAutofillEngine:
             if name.lower().endswith(".csv"):
                 if name.startswith("Operations Report"):
                     infor_files.append(name)
-                elif name.startswith("SalesbyVenue"):
+                elif name.startswith("TransactionDetailbyVenue"):
                     grubhub_files.append(name)
             elif name.lower().endswith(".xls"):
                 tavlo_files.append(name)
@@ -201,6 +206,14 @@ class CashSheetAutofillEngine:
 
         # ── Summary ───────────────────────────────────────────────────────
         self.tracker.print_summary()
+
+        # Print reports then cash sheets if enabled
+        if self.auto_print and self.filled_days:
+            from ..printer import ExcelPrinter
+            printer = ExcelPrinter(self.printer_name, self.tracker)
+            printer.print_all(self.reports_dir,
+                              self.casheet_dir, list(self.filled_days))
+
         return self.tracker
 
     # ═══════════════════════════════════════════════════════════════
@@ -250,12 +263,11 @@ class CashSheetAutofillEngine:
 
         if valid:
             self.tracker.add_success(label, casheet_path)
+            self.filled_days.add(week_day)
         else:
             self.tracker.add_failure(label, casheet_path,
                                      warning="Tender over/short != 0")
         self.tracker.log(f"{'=' * 70}")
-        self.tracker.log(f"{'=' * 70}")
-
         return True
 
     # ═══════════════════════════════════════════════════════════════
@@ -306,37 +318,43 @@ class CashSheetAutofillEngine:
     #  PROCESS GRUBHUB REPORT  (one file = ALL venues × ALL dates)
     # ═══════════════════════════════════════════════════════════════
 
-    def _aggregate_data_dicts(self, data_list):
-        """
-        Merge/sum multiple data dicts that target the same cash-sheet row.
-        """
+    def _aggregate_data_dicts(self, data_list, label, casheet_path):
+        """Merge/sum multiple data dicts that target the same cash-sheet row."""
         merged = {
             "date": data_list[0]["date"],
             "count": 0,
             "total_sales": 0.0,
             "tax": 0.0,
             "tenders": {},
+            "discounts": 0.0,
         }
         for d in data_list:
             merged["count"] += d.get("count", 0)
             merged["total_sales"] += d.get("total_sales", 0.0)
             merged["tax"] += d.get("tax", 0.0)
+            merged["discounts"] += d.get("discounts", 0.0)
             for k, v in d.get("tenders", {}).items():
                 merged["tenders"][k] = merged["tenders"].get(k, 0.0) + v
+
+        if merged.get("discounts", 0.0) != 0.0:
+            merged["tenders"]["visa"] = merged["tenders"].get(
+                "visa", 0.0) + merged["discounts"]
+            self.tracker.log(
+                f"      ℹ Discounts ${merged['discounts']:.2f} added to visa → ${merged['tenders']['visa']:.2f}")
+            merged.pop("discounts", None)
+
         return merged
 
     def process_grubhub(self, parser, grubhub_path):
         """
         Parse a Grubhub CSV and fill each venue's cash sheet for every date.
-
-        Groups ALL data by cash-sheet file across ALL dates, so each workbook
-        is opened only once (avoids corruption from repeated open/save cycles).
-        Venues that share a row are aggregated (summed).
         """
         grubhub_filename = os.path.basename(grubhub_path)
-        self.tracker.log(f"\n--- Grubhub: {grubhub_filename} ---")
+        self.tracker.log(f"\n{'='*60}")
+        self.tracker.log(f"  Grubhub: {grubhub_filename}")
+        self.tracker.log(f"{'='*60}")
 
-        if not parser.parse():
+        if not parser.parse(self.stop_event):
             self.tracker.add_failure(
                 "Grubhub", grubhub_filename, "Parse failed")
             return
@@ -346,7 +364,6 @@ class CashSheetAutofillEngine:
             return
 
         # ── Step 1: Collect ALL data grouped by casheet_path ──────────────
-        # Structure: {casheet_path: [(weekday, location, merged_data, label), ...]}
         file_tasks = {}
 
         for grub_date in parser.get_dates():
@@ -356,9 +373,9 @@ class CashSheetAutofillEngine:
 
             venues = parser.get_venues(grub_date)
             self.tracker.log(
-                f"\n  Date: {grub_date} ({weekday})  —  {len(venues)} venue(s)")
+                f"\n  📅 {grub_date} ({weekday}) — {len(venues)} venue(s)")
+            self.tracker.log(f"  {'─'*50}")
 
-            # Group venues by (casheet_path, location) for this date
             date_groups = {}
             for venue in venues:
                 if venue not in GRUBHUB_VENUE_MAP:
@@ -383,17 +400,26 @@ class CashSheetAutofillEngine:
                 date_groups[key]["venues"].append(venue)
                 date_groups[key]["data_list"].append(data)
 
-            # Aggregate same-row venues and queue tasks per file
             for (casheet_path, location_in_casheet), grp in date_groups.items():
                 venue_names = grp["venues"]
                 data_list = grp["data_list"]
 
                 if len(data_list) > 1:
-                    merged_data = self._aggregate_data_dicts(data_list)
-                    label = f"{grub_date} : Grubhub → {', '.join(venue_names)} (combined)"
+                    label = f"{grub_date} : {', '.join(venue_names)} (combined)"
+                    merged_data = self._aggregate_data_dicts(
+                        data_list, label, casheet_path)
+                    venue_display = f"{venue_names[0]} +{len(venue_names)-1} more"
                 else:
                     merged_data = data_list[0]
-                    label = f"{grub_date} : Grubhub → {venue_names[0]}"
+                    label = f"{grub_date} : {venue_names[0]}"
+                    venue_display = venue_names[0]
+
+                # One clean line per venue/group
+                sales = merged_data.get('total_sales', 0)
+                tax = merged_data.get('tax', 0)
+                count = merged_data.get('count', 0)
+                self.tracker.log(
+                    f"    {venue_display:<40} ${sales:>8.2f}  tax ${tax:>6.2f}  x{count}")
 
                 if casheet_path not in file_tasks:
                     file_tasks[casheet_path] = []
@@ -401,10 +427,13 @@ class CashSheetAutofillEngine:
                     (weekday, location_in_casheet, merged_data, label))
 
         # ── Step 2: Open each workbook once, fill all dates, save once ────
+        self.tracker.log(f"\n  {'='*50}")
+        self.tracker.log(f"  Saving workbooks...")
+        self.tracker.log(f"  {'='*50}")
+
         for casheet_path, tasks in file_tasks.items():
-            # --- Quick stop check ---
             if self.stop_event and self.stop_event.is_set():
-                self.tracker.log("🛑 Aborting Grubhub workbook filling...")
+                self.tracker.log("  🛑 Aborting Grubhub workbook filling...")
                 return
 
             wb = None
@@ -416,21 +445,20 @@ class CashSheetAutofillEngine:
                                              f"Failed to open workbook: {e}")
                 continue
 
-            all_ok = True
+            ok_count = 0
+            fail_count = 0
             for (weekday, location_in_casheet, merged_data, label) in tasks:
                 try:
-                    # Find sheet (case-insensitive)
                     sheet_map = {s.lower(): s for s in wb.sheetnames}
                     actual_sheet = sheet_map.get(weekday.lower())
                     if actual_sheet is None:
                         self.tracker.add_failure(label, casheet_path,
                                                  f"Worksheet '{weekday}' not found")
-                        all_ok = False
+                        fail_count += 1
                         continue
 
                     ws = wb[actual_sheet]
 
-                    # Find row for location
                     location_col = FILL_COL_MAP.get("location")
                     target_row = None
                     for r in range(4, ws.max_row + 1):
@@ -442,12 +470,11 @@ class CashSheetAutofillEngine:
                     if target_row is None:
                         self.tracker.add_failure(label, casheet_path,
                                                  f"Location '{location_in_casheet}' not found")
-                        all_ok = False
+                        fail_count += 1
                         continue
 
                     tax_row = target_row + 1
 
-                    # Fill data directly
                     date_col = FILL_COL_MAP.get("date")
                     if date_col:
                         ws.cell(1, date_col).value = merged_data.get("date")
@@ -471,23 +498,23 @@ class CashSheetAutofillEngine:
                         if tender_name not in FILL_COL_MAP:
                             continue
                         col = FILL_COL_MAP[tender_name]
-                        if amount != 0:
-                            ws.cell(target_row, col).value = amount
-                        else:
-                            ws.cell(target_row, col).value = None
+                        ws.cell(
+                            target_row, col).value = amount if amount != 0 else None
 
                     self.tracker.add_success(label, casheet_path)
-
+                    self.filled_days.add(weekday)
+                    ok_count += 1
                 except Exception as e:
                     self.tracker.add_failure(
                         label, casheet_path, f"Fill error: {e}")
-                    all_ok = False
+                    fail_count += 1
 
-            # Save once for the entire workbook
+            # Save + one-line summary
             try:
                 wb.save(casheet_path)
-                self.tracker.log(
-                    f"  💾 Saved: {os.path.basename(casheet_path)}")
+                filename = os.path.basename(casheet_path)
+                status = f"✅ {ok_count} filled" if fail_count == 0 else f"⚠️ {ok_count} ok, {fail_count} failed"
+                self.tracker.log(f"    💾 {filename:<35} {status}")
             except PermissionError:
                 self.tracker.add_failure(
                     os.path.basename(casheet_path), casheet_path,
@@ -499,13 +526,14 @@ class CashSheetAutofillEngine:
             finally:
                 wb.close()
 
-        # Log any unmapped items
+        # Log unmapped items
         unmapped_v = parser.get_unmapped_venues()
         unmapped_t = parser.get_unmapped_tenders()
         if unmapped_v:
-            self.tracker.log(f"\n  Unmapped venues : {unmapped_v}")
+            self.tracker.log(
+                f"\n  ⚠️ Unmapped venues: {', '.join(unmapped_v)}")
         if unmapped_t:
-            self.tracker.log(f"  Unmapped tenders: {unmapped_t}")
+            self.tracker.log(f"  ⚠️ Unmapped tenders: {', '.join(unmapped_t)}")
 
 
 # ═══════════════════════════════════════════════════════════════

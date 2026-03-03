@@ -5,13 +5,8 @@ Parses Tavlo sales reports (XML format).
 
 import xml.etree.ElementTree as ET
 import traceback
-try:
-    from .config import TAVLO_TENDERS, CASHEET_TENDERS
-    from .base_parser import BaseParser
-except ImportError:
-    from config import TAVLO_TENDERS, CASHEET_TENDERS
-    from base_parser import BaseParser
-
+from .config import TAVLO_TENDERS, CASHEET_TENDERS
+from .base_parser import BaseParser
 from dateutil.parser import parse
 from ..utils import strip_accents
 
@@ -28,7 +23,8 @@ class TavloParser(BaseParser):
         'tax': "Sales Taxes",
         'cc': "Credit Card",
         'coupons': "Coupon/Voucher",
-        'custom_tenders': "Custom Tender"
+        'custom_tenders': "Custom Tender",
+        'to_go_fees': "To Go Fees"
     }
 
     def __init__(self, file_path, tracker=None):
@@ -119,7 +115,7 @@ class TavloParser(BaseParser):
 
     def _update_section_index(self, key, line_index):
         for section_name, marker in self.SECTION_MARKERS.items():
-            if key == marker:
+            if key == marker and section_name not in self.index:
                 self.index[section_name] = line_index
                 break
 
@@ -231,6 +227,8 @@ class TavloParser(BaseParser):
                     casheet_tender_name = TAVLO_TENDERS[tender_name]
                     self.data["tenders"][casheet_tender_name] += float(
                         tender_value)
+                    self._log(
+                        f"   ✓ Recognized tender: '{tender_name}' mapped to '{casheet_tender_name}' with amount ${tender_value:.2f} make  it to be {self.data['tenders'][casheet_tender_name]:.2f}")
                 else:
                     unrecognized_tenders.append(tender_name)
                 index += 1
@@ -251,7 +249,7 @@ class TavloParser(BaseParser):
     def parse_coupon(self):
         try:
             if "coupons" not in self.index:
-                self._log("  ℹ️  No 'Coupon/Voucher' section found. Skipping.")
+                self._log("  ℹ️ No 'Coupon/Voucher' section found. Skipping.")
                 return True
             index = self.index["coupons"] + 1
             while index < len(self.lines) and self.lines[index][0]:
@@ -271,6 +269,27 @@ class TavloParser(BaseParser):
         except Exception as e:
             self._log_error(f"Error parsing coupons: {e}")
             return False
+    # pass to go fees (only for Lassonde)
+
+    def parse_to_go_fees(self):
+        try:
+            if "to_go_fees" not in self.index:
+                self._log("  ℹ️ No 'To Go Fees' section found. Skipping.")
+                return True
+            index = self.index["to_go_fees"] + 1
+            while index < len(self.lines) and self.lines[index][0]:
+                if "To" in self.lines[index][0]:
+                    to_go_fees_value = self.lines[index][1]
+                    if to_go_fees_value is not None:
+                        self.data["total_sales"] += float(to_go_fees_value)
+                        self._log(
+                            f"  ✓ To Go Fees: ${to_go_fees_value:.2f} make total sales to be ${self.data['total_sales']:.2f}")
+                    break
+                index += 1
+            return True
+        except Exception as e:
+            self._log_error(f"Error parsing To Go Fees: {e}")
+            return False
 
     def parse(self):
      # 0. print section separators  and report info for context
@@ -286,11 +305,13 @@ class TavloParser(BaseParser):
             self._log(f"\n{'=' * 70}")
             return False
 
-        if not all([self.parse_count(), self.parse_tax(), self.parse_cc(), self.parse_custom_tender(), self.parse_coupon()]):
+        if not all([self.parse_count(), self.parse_tax(), self.parse_cc(), self.parse_custom_tender(), self.parse_coupon(), self.parse_to_go_fees()]):
             self._log_error("Parsing failed on one or more sections")
             return False
 
         self._log("  ✅ Parsing successful!")
+        self._log(f"\n{'=' * 70}")
+
         return True
 
     def get_data_dict(self):
