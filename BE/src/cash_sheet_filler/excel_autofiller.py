@@ -227,6 +227,9 @@ class ExcelAutofiller:
         Returns:
             bool: True if save successful and data validates correctly, False otherwise
         """
+        # Calculate formula
+        self.wb.calculation.calcMode = 'auto'
+        self.wb.calculation.fullCalcOnLoad = True
         try:
             # Step 1: Save the workbook
             self.wb.save(self.xl_path)

@@ -54,8 +54,9 @@ class SideBar(ctk.CTkFrame):
 
         self._buttons: list[dict] = []
         items = [
-            ("home",     "🏠", "Home",             nav_callbacks.get("home")),
-            ("autofill", "🤖", "Auto-Fill Center", nav_callbacks.get("autofill")),
+            ("home",      "🏠", "Home",             nav_callbacks.get("home")),
+            ("autofill",  "🤖", "Auto-Fill Center", nav_callbacks.get("autofill")),
+            ("analytics", "📊", "Analytics",        nav_callbacks.get("analytics")),
         ]
         for key, icon, text, cmd in items:
             self._add_button(nav_frame, key, icon, text, cmd)

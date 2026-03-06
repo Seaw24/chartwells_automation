@@ -245,14 +245,14 @@ class InforParser(BaseParser):
     def parse(self):
 
         if not self.read_report():
-            self._log(f"{'=' * 70}")
+            self._log(f"{'=' * 80}")
             return False
         if not self.parse_location():
-            self._log(f"{'=' * 70}")
+            self._log(f"{'=' * 80}")
 
             return False
         if not self.parse_date():
-            self._log(f"{'=' * 70}")
+            self._log(f"{'=' * 80}")
             return False
 
         sections_ok = (
@@ -266,7 +266,7 @@ class InforParser(BaseParser):
             self._log("  ✅ Parsing successful!")
         else:
             self._log_error("Parsing failed on one or more sections")
-        self._log(f"{'=' * 70}\n")
+        self._log(f"{'=' * 80}\n")
         return sections_ok
 
     def get_data_dict(self):

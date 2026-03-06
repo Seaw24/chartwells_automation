@@ -2,166 +2,75 @@
   "reports_cashsheet_map": {
     "Crimson Corner 1-1": [
       "Crimson Corner",
+      "Crimson Corner",
       "Crimson Corner"
     ],
-    "Gardner Food Court 1-1": [
-      "gardner",
-      "Register 1"
-    ],
-    "Gardner Food Court 4-1": [
-      "gardner",
-      "Register 4"
-    ],
-    "Honors Market 1-1": [
-      "Honors",
-      "Honors"
-    ],
-    "Kahlert 1-1": [
-      "kv",
-      "Urban Bites 1"
-    ],
-    "Kahlert 2-1": [
-      "KV",
-      "Urban Bites 2"
-    ],
-    "Shake Smart 1-1": [
-      "Shake Smart",
-      "Life Center"
-    ],
-    "The Bean Yard": [
-      "Beanyard",
-      "BeanYard"
-    ],
-    "Thirst 1-1": [
-      "Crimson Corner",
-      "Thirst"
-    ],
-    "Union Shake Smart 1-1": [
-      "UnionShakeSmart",
-      "U.S.S."
-    ],
+    "Gardner Food Court 1-1": ["gardner", "Register 1", "Gardner Food Court"],
+    "Gardner Food Court 4-1": ["gardner", "Register 4", "Gardner Food Court"],
+    "Honors Market 1-1": ["Honors", "Honors", "Honors Market"],
+    "Kahlert 1-1": ["kv", "Urban Bites 1", "Kahlert"],
+    "Kahlert 2-1": ["KV", "Urban Bites 2", "Kahlert"],
+    "Shake Smart 1-1": ["Shake Smart", "Life Center", "Shake Smart"],
+    "The Bean Yard": ["Beanyard", "BeanYard", "The Bean Yard"],
+    "Thirst 1-1": ["Crimson Corner", "Thirst", "Thirst"],
+    "Union Shake Smart 1-1": ["UnionShakeSmart", "U.S.S.", "Union Shake Smart"],
     "Cafe Epicenter Market Kiosks": [
       "Epicenter",
+      "Epicenter Market",
       "Epicenter Market"
     ],
     "Cafe Epicenter ordering Kiosk": [
       "Epicenter",
+      "Epicenter Order",
       "Epicenter Order"
     ],
-    "City Edge Cafe": [
-      "City's Edge",
-      "City's Edge 3"
-    ],
-    "Crimson View": [
-      "cv",
-      "Register 1"
-    ],
+    "City Edge Cafe": ["City's Edge", "City's Edge 3", "City's Edge Cafe"],
+    "Crimson View": ["cv", "Register 1", "Crimson View"],
     "Einstein Bros. Bagels": [
       "Satellite",
-      "Einsteins 1"
+      "Einsteins 1",
+      "Einstein Bros. Bagels"
     ],
-    "Hive Express": [
-      "HECS",
-      "Hive Tavlo"
-    ],
-    "Quartzdyne Cafe": [
-      "HECS",
-      "Quartz Cafe"
-    ],
-    "Lassonde Market Kiosks": [
-      "Lassonde",
-      "Tavlo Market"
-    ],
-    "Lassonde ordering Kiosk": [
-      "Lassonde",
-      "Tavlo Ordering"
-    ],
+    "Hive Express": ["HECS", "Hive Tavlo", "Hive Express"],
+    "Quartzdyne Cafe": ["HECS", "Quartz Cafe", "Quartzdyne Cafe"],
+    "Lassonde Market Kiosks": ["Lassonde", "Tavlo Market", "Lassonde"],
+    "Lassonde ordering Kiosk": ["Lassonde", "Tavlo Ordering", "Lassonde"],
     "Seagull Sunrise at Lund Commons": [
       "crss",
-      "Seagull Sunrise"
+      "Seagull Sunrise",
+      "Seagull Sunrise at Lund Commons"
     ],
-    "Union Food Court": [
-      "csfs",
-      "foodcourt 1"
-    ]
+    "Union Food Court": ["csfs", "foodcourt 1", "Union Food Court"]
   },
   "grubhub_venue_map": {
-    "City Edge": [
-      "City's Edge",
-      "grubhub"
-    ],
-    "Crimson View": [
-      "cv",
-      "grubhub"
-    ],
-    "Einstein Bros. Bagels": [
-      "Satellite",
-      "grubhub"
-    ],
-    "Epicenter Cafe": [
-      "Epicenter",
-      "grubhub"
-    ],
-    "Hive Express": [
-      "HECS",
-      "grubhub"
-    ],
-    "Honors Market": [
-      "Honors",
-      "grubhub"
-    ],
-    "Seagull Sunrise": [
-      "crss",
-      "grubhub"
-    ],
+    "City Edge": ["City's Edge", "grubhub", "City Edge Cafe"],
+    "Crimson View": ["cv", "grubhub", "Crimson View"],
+    "Einstein Bros. Bagels": ["Satellite", "grubhub", "Einstein Bros. Bagels"],
+    "Epicenter Cafe": ["Epicenter", "grubhub", "Epicenter Market"],
+    "Hive Express": ["HECS", "grubhub", "Hive Express"],
+    "Honors Market": ["Honors", "grubhub", "Honors Market"],
+    "Seagull Sunrise": ["crss", "grubhub", "Seagull Sunrise at Lund Commons"],
+    "Urban Bytes": ["KV", "grubhub", "Kahlert 1"],
+    "Absurd Bird": ["gardner", "grubhub", "Gardner Food Court"],
+    "Cilantree": ["csfs", "grubhub", "Union Food Court"],
+    "Crossroads Bistro": ["csfs", "grubhub", "Union Food Court"],
+    "Cupbop": ["gardner", "grubhub", "Gardner Food Court"],
+    "El Tonga Taco": ["csfs", "grubhub", "Union Food Court"],
+    "Iron Waffle": ["gardner", "grubhub", "Gardner Food Court"],
+    "Miller Cafe": ["Lassonde", "grubhub", "Lassonde"],
+    "Panda Express": ["panda", "grubhub", "Panda Express"],
     "Shake Smart - Student Life Center": [
       "Shake Smart",
-      "grubhub"
+      "grubhub",
+      "Shake Smart"
     ],
-    "Shake Smart - Union": [
-      "UnionShakeSmart",
-      "grubhub"
+    "Student Life Center - Shake Smart": [
+      "Shake Smart",
+      "grubhub",
+      "Shake Smart"
     ],
-    "Urban Bytes": [
-      "KV",
-      "grubhub"
-    ],
-    "Absurd Bird": [
-      "gardner",
-      "grubhub"
-    ],
-    "Cilantree": [
-      "csfs",
-      "grubhub"
-    ],
-    "Crossroads Bistro": [
-      "csfs",
-      "grubhub"
-    ],
-    "Cupbop": [
-      "gardner",
-      "grubhub"
-    ],
-    "El Tonga Taco": [
-      "csfs",
-      "grubhub"
-    ],
-    "Iron Waffle": [
-      "gardner",
-      "grubhub"
-    ],
-    "Miller Cafe": [
-      "Lassonde",
-      "grubhub"
-    ],
-    "Panda Express": [
-      "panda",
-      "grubhub"
-    ],
-    "United Table": [
-      "csfs",
-      "grubhub"
-    ]
+    "Shake Smart - Union": ["UnionShakeSmart", "grubhub", "Union Shake Smart"],
+    "Union - Shake Smart": ["UnionShakeSmart", "grubhub", "Union Shake Smart"]
   },
   "fill_col_map": {
     "date": 21,
@@ -250,5 +159,5 @@
   },
   "summary_data_map": {},
   "reports_folder": "C:/Users/admin/Downloads/testing/test report individual",
-  "cash_sheets_folder": "C:/Users/admin/Downloads/testing/cash sheet individual"
+  "cash_sheets_folder": "C:/Users/admin/Downloads/testing/cash sheets"
 }

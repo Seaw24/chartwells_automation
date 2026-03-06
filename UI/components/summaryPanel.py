@@ -91,6 +91,8 @@ class SummaryPanel(ctk.CTkFrame):
             ("contract_card", "Total Contract Card", "📄"),
             ("creditcard", "Total Credit Card", "🏦"),
             ("total", "Grand Total", "💰"),
+            ("total_average", "Total Average", "📈"),
+            ("meal_count", "Meal Count", "🍱"),
         ]
 
         self.value_labels = {}
@@ -141,7 +143,7 @@ class SummaryPanel(ctk.CTkFrame):
 
         self.value_labels[key] = value_label
 
-    def update_value(self, transfer=0, flex=0, ucash=0, dining=0, contract_card=0, creditcard=0, total=0):
+    def update_value(self, transfer=0, flex=0, ucash=0, dining=0, contract_card=0, creditcard=0, total=0, total_average=0, meal_count=0):
         """Update all table values"""
         values = {
             "transfer": transfer,
@@ -150,7 +152,9 @@ class SummaryPanel(ctk.CTkFrame):
             "dining": dining,
             "contract_card": contract_card,
             "creditcard": creditcard,
-            "total": total
+            "total": total,
+            "total_average": total_average,
+            "meal_count": meal_count
         }
         for key, value in values.items():
             if key in self.value_labels:

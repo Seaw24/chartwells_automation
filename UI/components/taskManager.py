@@ -1,6 +1,5 @@
 import customtkinter as ctk
 import json
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -325,16 +324,19 @@ class TaskManager(ctk.CTkFrame):
 
     # ── Data ────────────────────────────────────────────────────
     def load_tasks(self):
-        if os.path.exists(TASK_FILE):
+        task_path = Path(TASK_FILE)
+        if task_path.exists():
             try:
-                with open(TASK_FILE, 'r') as f:
-                    return json.load(f)
-            except Exception:
+                with task_path.open('r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, list):
+                    return loaded
+            except (OSError, json.JSONDecodeError, TypeError):
                 return []
         return []
 
     def save_tasks(self):
-        with open(TASK_FILE, 'w') as f:
+        with Path(TASK_FILE).open('w', encoding='utf-8') as f:
             json.dump(self.tasks, f, indent=4)
 
     def switch_view(self, value):

@@ -7,7 +7,10 @@ Goes through every cash sheet Excel file and sets row 49, column 2
 import os
 from openpyxl import load_workbook
 
-CASH_SHEETS_FOLDER = r"C:\Users\admin\OneDrive\Nam career\Chartwells\chartwells_automation\cash sheets"
+try:
+    from .config import CASH_SHEET_FOLDER
+except ImportError:
+    from config import CASH_SHEET_FOLDER
 
 ROW = 49
 LOCATION_COL = 2  # Column B = location name
@@ -17,7 +20,7 @@ NEW_NAME = "grubhub"
 
 
 def main():
-    files = [f for f in os.listdir(CASH_SHEETS_FOLDER) if f.endswith(".xlsx")]
+    files = [f for f in os.listdir(CASH_SHEET_FOLDER) if f.endswith(".xlsx")]
 
     if not files:
         print("No .xlsx files found in cash sheets folder.")
@@ -27,7 +30,7 @@ def main():
         f"Setting row {ROW} location name to '{NEW_NAME}' in {len(files)} cash sheets...\n")
 
     for filename in sorted(files):
-        filepath = os.path.join(CASH_SHEETS_FOLDER, filename)
+        filepath = os.path.join(CASH_SHEET_FOLDER, filename)
 
         try:
             wb = load_workbook(filepath)

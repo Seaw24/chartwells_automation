@@ -27,10 +27,7 @@
     ],
     "heritage": [
       {
-        "phc": [
-          "Heritage 1",
-          "Heritage 2"
-        ]
+        "phc": ["Heritage 1", "Heritage 2"]
       }
     ],
     "kv": [
@@ -115,19 +112,7 @@
     "casheets_dir": "C:/Users/admin/Downloads/testing/cash sheets",
     "master_path": "C:/Users/admin/Downloads/testing/cash sheets/Satellite 02-12-26.xlsx"
   },
-  "important_casheet_data_col": [
-    3,
-    4,
-    6,
-    7,
-    8,
-    11,
-    13,
-    16,
-    17,
-    18,
-    19
-  ],
+  "important_casheet_data_col": [3, 4, 6, 7, 8, 11, 13, 16, 17, 18, 19],
   "first_date_row": 3,
   "date_col": 21
 }

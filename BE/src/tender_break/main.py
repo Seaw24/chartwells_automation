@@ -62,9 +62,9 @@ class ProcessingTracker:
 
     def print_summary(self):
         total = len(self.successful) + len(self.failed)
-        self.log(f"\n{'='*60}")
+        self.log(f"\n{'='*80}")
         self.log("📋 TENDER BREAKDOWN SUMMARY")
-        self.log(f"{'='*60}")
+        self.log(f"{'='*80}")
         self.log(f"✅ Successful: {len(self.successful)} / {total}")
         for loc, date, fname in self.successful:
             self.log(f"   • {loc:<20} | {date} | {fname}")
@@ -75,7 +75,7 @@ class ProcessingTracker:
                 self.log(
                     f"   • {loc or 'Unknown':<20} | {d_str:<10} | {fname}")
                 self.log(f"     └─ {err}")
-        self.log(f"{'='*60}\n")
+        self.log(f"{'='*80}\n")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -316,7 +316,7 @@ class TenderBreakdownEngine:
     def _process_casheet(self, casheet_path, master_ws):
         """Process a single cash sheet workbook."""
         filename = casheet_path.name
-        self.tracker.log(f"\n{'='*50}")
+        self.tracker.log(f"\n{'='*80}")
         self.tracker.log(f"📄 {filename}")
 
         # ── Match filename to config key ──────────────────────────
