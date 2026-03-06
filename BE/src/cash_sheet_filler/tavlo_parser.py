@@ -295,14 +295,14 @@ class TavloParser(BaseParser):
      # 0. print section separators  and report info for context
 
         if not self.read_report():
-            self._log(f"\n{'=' * 70}")
+            self._log(f"\n{'=' * 80}")
 
             return False
         if not self.parse_location():
-            self._log(f"\n{'=' * 70}")
+            self._log(f"\n{'=' * 80}")
             return False
         if not self.parse_date():
-            self._log(f"\n{'=' * 70}")
+            self._log(f"\n{'=' * 80}")
             return False
 
         if not all([self.parse_count(), self.parse_tax(), self.parse_cc(), self.parse_custom_tender(), self.parse_coupon(), self.parse_to_go_fees()]):
@@ -310,7 +310,7 @@ class TavloParser(BaseParser):
             return False
 
         self._log("  ✅ Parsing successful!")
-        self._log(f"\n{'=' * 70}")
+        self._log(f"\n{'=' * 80}")
 
         return True
 

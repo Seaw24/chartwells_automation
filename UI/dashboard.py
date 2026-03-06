@@ -15,17 +15,16 @@ for _p in (_UI_DIR, _ROOT_DIR):
         sys.path.insert(0, str(_p))
 
 try:
+    from BE.src.db.tendersdb_manager import TendersDBManager
     from components.sidebar import SideBar
     from components.autofill_center import AutoFillCenter
-    from components.summaryPanel import SummaryPanel
     from components.taskManager import TaskManager
-    from components.resizablePane import ResizablePane
+    from components.analyticsPage import AnalyticsPage
 except ModuleNotFoundError:
     from UI.components.sidebar import SideBar
     from UI.components.autofill_center import AutoFillCenter
-    from UI.components.summaryPanel import SummaryPanel
     from UI.components.taskManager import TaskManager
-    from UI.components.resizablePane import ResizablePane
+    from UI.components.analyticsPage import AnalyticsPage
 
 
 class App(ctk.CTk):
@@ -35,6 +34,7 @@ class App(ctk.CTk):
     HEIGHT = 620
 
     def __init__(self):
+        TendersDBManager()  # Ensure DB is initialized before any UI interaction
         super().__init__()
 
         # ── window setup ─────────────────────────────────────────────
@@ -54,6 +54,7 @@ class App(ctk.CTk):
             nav_callbacks={
                 "home": self._show_home,
                 "autofill": self._show_autofill,
+                "analytics": self._show_analytics,
             },
         )
         self.sidebar.grid(row=0, column=0, sticky="ns")
@@ -83,9 +84,14 @@ class App(ctk.CTk):
         self._clear_content()
         if name not in self._pages:
             self._pages[name] = factory()
-        self._pages[name].grid(row=0, column=0, sticky="nsew")
+        page = self._pages[name]
+        page.grid(row=0, column=0, sticky="nsew")
         self._current_page = name
         self.sidebar.set_active(name)
+
+        # Let the page refresh its data when it becomes visible
+        if hasattr(page, "on_show"):
+            page.on_show()
 
     # ── individual pages ─────────────────────────────────────────────
     def _show_home(self):
@@ -94,27 +100,26 @@ class App(ctk.CTk):
     def _show_autofill(self):
         self._show_page("autofill", self._build_autofill)
 
+    def _show_analytics(self):
+        self._show_page("analytics", self._build_analytics)
+
     # ── page builders ────────────────────────────────────────────────
     def _build_home(self) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(self._content, fg_color="transparent")
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_rowconfigure(0, weight=1)
 
-        # ResizablePane: SummaryPanel on top, TaskManager on bottom
-        pane = ResizablePane(
-            frame,
-            top_widget_class=SummaryPanel,
-            bottom_widget_class=TaskManager,
-            initial_top_ratio=0.35,
-            min_top=120,
-            min_bottom=150,
-        )
-        pane.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
+        # Home page: just the TaskManager (full height)
+        task_mgr = TaskManager(frame)
+        task_mgr.grid(row=0, column=0, sticky="nsew", padx=12, pady=12)
 
         return frame
 
     def _build_autofill(self) -> ctk.CTkFrame:
         return AutoFillCenter(self._content)
+
+    def _build_analytics(self) -> ctk.CTkFrame:
+        return AnalyticsPage(self._content)
 
 
 # ── entry point ──────────────────────────────────────────────────────

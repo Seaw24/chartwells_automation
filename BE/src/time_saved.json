@@ -1,9 +1,9 @@
 {
-  "cash_sheet_runs": 17,
+  "cash_sheet_runs": 19,
   "tender_runs": 0,
   "cash_sheet_minutes_per_run": 30,
   "tender_minutes_per_run": 300,
-  "total_minutes_saved": 210,
-  "last_run": "03/03/2026 02:48 PM",
-  "tracking_enabled": true
+  "total_minutes_saved": 270,
+  "last_run": "03/06/2026 02:24 PM",
+  "tracking_enabled": false
 }

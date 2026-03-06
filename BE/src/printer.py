@@ -168,10 +168,10 @@ class ExcelPrinter:
         total_reports = len(infor) + len(tavlo) + len(grubhub)
 
         if total_reports > 0:
-            self._log(f"\n  {'='*50}")
+            self._log(f"\n  {'='*80}")
             self._log(
                 f"  Printing {len(infor)} Infor + {len(tavlo)} Tavlo + {len(grubhub)} Grubhub")
-            self._log(f"  {'='*50}")
+            self._log(f"  {'='*80}")
 
         printed, failed = 0, 0
 
@@ -202,9 +202,9 @@ class ExcelPrinter:
             f for f in xlsx_files if not os.path.basename(f).startswith("~$")]
 
         if xlsx_files and sheet_names:
-            self._log(f"\n  {'='*50}")
+            self._log(f"\n  {'='*80}")
             self._log(f"  Printing {len(xlsx_files)} cash sheet(s)")
-            self._log(f"  {'='*50}")
+            self._log(f"  {'='*80}")
 
             cs_printed, cs_failed = 0, 0
             for xlsx_path in xlsx_files:

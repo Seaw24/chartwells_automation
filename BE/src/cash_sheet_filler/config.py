@@ -4,6 +4,8 @@ import json
 import shutil
 from pathlib import Path
 
+# Initialize the database manager
+
 
 def _get_config_path():
     """
@@ -44,6 +46,12 @@ def save_config(config):
     try:
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+        try:
+            from ..db.tendersdb_manager import TendersDBManager
+        except ImportError:
+            from BE.src.db.tendersdb_manager import TendersDBManager
+        # Re-sync DB schema with updated tender config
+        TendersDBManager().reload_tender_keys()
     except Exception as e:
         raise IOError(f"Error saving configuration to file: {e}")
 

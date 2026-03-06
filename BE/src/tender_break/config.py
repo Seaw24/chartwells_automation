@@ -1,16 +1,25 @@
 # config.py
 import sys
 import json
+import shutil
 from pathlib import Path
 
 
-def _get_config_dir():
+def _get_config_path():
+    filename = "tender_config.json"
+
     if getattr(sys, 'frozen', False):
-        return Path(sys._MEIPASS) / "BE" / "src" / "tender_break"
-    return Path(__file__).parent
+        editable = Path(sys.executable).parent / "config" / filename
+        bundled = Path(sys._MEIPASS) / "BE" / "src" / "tender_break" / filename
+        if not editable.exists():
+            editable.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bundled, editable)
+        return editable
+
+    return Path(__file__).parent / filename
 
 
-CONFIG_FILE = _get_config_dir() / "tender_config.json"
+CONFIG_FILE = _get_config_path()
 
 
 def load_config():
