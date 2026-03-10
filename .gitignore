@@ -11,3 +11,5 @@ chartwells.spec
 /dist
 /build
 /DB
+.env
+*.spec
