@@ -6,10 +6,15 @@ Accepts a ``nav_callbacks`` dict mapping logical names to callables.
 import customtkinter as ctk
 from pathlib import Path
 
+
 try:
     from PIL import Image
+    from BE.src.path_helper import get_bundle_dir
+    _LOGO_PATH = get_bundle_dir() / "logo" / "chartwells.jfif"
 except ImportError:
     Image = None  # graceful fallback – logo just won't show
+    _LOGO_PATH = Path(__file__).resolve(
+    ).parent.parent.parent / "logo" / "chartwells.jfif"
 
 _LOGO_PATH = Path(__file__).resolve().parent.parent.parent / \
     "logo" / "chartwells.jfif"
@@ -55,8 +60,8 @@ class SideBar(ctk.CTkFrame):
         self._buttons: list[dict] = []
         items = [
             ("home",      "🏠", "Home",             nav_callbacks.get("home")),
-            ("autofill",  "🤖", "Auto-Fill Center", nav_callbacks.get("autofill")),
             ("analytics", "📊", "Analytics",        nav_callbacks.get("analytics")),
+            ("autofill",  "🤖", "Auto-Fill Center", nav_callbacks.get("autofill")),
         ]
         for key, icon, text, cmd in items:
             self._add_button(nav_frame, key, icon, text, cmd)

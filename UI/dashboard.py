@@ -16,6 +16,7 @@ for _p in (_UI_DIR, _ROOT_DIR):
 
 try:
     from BE.src.db.tendersdb_manager import TendersDBManager
+    from BE.src.updater import check_for_updates, CURRENT_VERSION
     from components.sidebar import SideBar
     from components.autofill_center import AutoFillCenter
     from components.taskManager import TaskManager
@@ -70,9 +71,11 @@ class App(ctk.CTk):
         self._current_page: str | None = None
 
         # Start on auto-fill (the primary feature)
-        self._show_autofill()
+        self._show_analytics()
+        self.after(1000, lambda: check_for_updates(self, CURRENT_VERSION))
 
     # ── page switching ───────────────────────────────────────────────
+
     def _clear_content(self):
         for w in self._content.winfo_children():
             w.grid_forget()

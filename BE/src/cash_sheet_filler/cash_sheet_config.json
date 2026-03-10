@@ -50,7 +50,7 @@
     "Hive Express": ["HECS", "grubhub", "Hive Express"],
     "Honors Market": ["Honors", "grubhub", "Honors Market"],
     "Seagull Sunrise": ["crss", "grubhub", "Seagull Sunrise at Lund Commons"],
-    "Urban Bytes": ["KV", "grubhub", "Kahlert 1"],
+    "Urban Bytes": ["KV", "grubhub", "Kahlert"],
     "Absurd Bird": ["gardner", "grubhub", "Gardner Food Court"],
     "Cilantree": ["csfs", "grubhub", "Union Food Court"],
     "Crossroads Bistro": ["csfs", "grubhub", "Union Food Court"],
@@ -158,6 +158,6 @@
     "visa": 0.0
   },
   "summary_data_map": {},
-  "reports_folder": "C:/Users/admin/Downloads/testing/test report individual",
+  "reports_folder": "C:/Users/admin/Downloads/testing/reports",
   "cash_sheets_folder": "C:/Users/admin/Downloads/testing/cash sheets"
 }

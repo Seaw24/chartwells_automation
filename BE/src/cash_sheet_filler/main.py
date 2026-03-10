@@ -241,7 +241,7 @@ class CashSheetAutofillEngine:
                 return f
         return None
 
-    def fill_and_save(self, casheet_path, location_in_casheet, location_in_db, data_dict, label, source="infor"):
+    def fill_and_save(self, casheet_path, location_in_casheet, raw_location, location_in_db, data_dict, label, source="infor"):
         """
         Open a cash-sheet workbook, fill one location row, save, and validate.
 
@@ -274,6 +274,7 @@ class CashSheetAutofillEngine:
             self.filled_days.add(week_day)
             saved = self.db_manager.insert_record(
                 report_date=data_dict.get("date"),
+                raw_location=raw_location,
                 location=location_in_db,
                 total_sales=data_dict.get("total_sales", 0.0),
                 tax=data_dict.get("tax", 0.0),
@@ -333,7 +334,7 @@ class CashSheetAutofillEngine:
         # 4. Fill and save — detect source from parser type
         source = "tavlo" if isinstance(report_parser, TavloParser) else "infor"
         casheet_path = os.path.join(self.casheet_dir, casheet_file)
-        self.fill_and_save(casheet_path, location_in_casheet, location_in_db,
+        self.fill_and_save(casheet_path, location_in_casheet, location, location_in_db,
                            data, f"{location} ({report_filename})", source=source)
 
     # ═══════════════════════════════════════════════════════════════
@@ -443,12 +444,14 @@ class CashSheetAutofillEngine:
 
                 if len(data_list) > 1:
                     label = f"{grub_date} : {', '.join(venue_names)} (combined)"
+                    raw_location = "Grubhub" + ", ".join(venue_names)
                     merged_data = self._aggregate_data_dicts(
                         data_list)
                     venue_display = f"{venue_names[0]} +{len(venue_names)-1} more"
                 else:
                     merged_data = data_list[0]
                     label = f"{grub_date} : {venue_names[0]}"
+                    raw_location = venue_names[0]
                     venue_display = venue_names[0]
 
                 # Fold discounts into visa for every Grubhub entry
@@ -462,7 +465,7 @@ class CashSheetAutofillEngine:
                     f"   Location: {venue_display:<40} ${sales:>8.2f}  tax ${tax:>6.2f}  count: {count}")
 
                 # Use fill_and_save (same as Infor/Tavlo)
-                self.fill_and_save(casheet_path, location_in_casheet, location_in_db,
+                self.fill_and_save(casheet_path, location_in_casheet, raw_location, location_in_db,
                                    merged_data, label, source="grubhub")
 
         # Log unmapped items
