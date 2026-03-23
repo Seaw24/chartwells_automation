@@ -42,12 +42,12 @@ except ImportError:
 #  CONFIGURATION — Change these for your project
 # ═══════════════════════════════════════════════════════════════
 
-GITHUB_REPO = "Seaw24/chartwells_automation"  # ← UPDATE THIS
+GITHUB_REPO = "Seaw24/chartwells_automation"
 # optional, for private repos
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 # Current version — bump this each time you build a new release
-CURRENT_VERSION = "1.0.1"  # ← UPDATE THIS
+CURRENT_VERSION = "1.0.3"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -113,14 +113,19 @@ def _download_asset(asset: dict, dest_path: Path, progress_callback=None) -> boo
     Download a release asset to dest_path.
     progress_callback(downloaded_bytes, total_bytes) is called periodically.
     """
-    url = asset.get("browser_download_url", "")
+    # For private repos, browser_download_url returns 404 without auth.
+    # Always use the API URL with token if we have a token.
+    if GITHUB_TOKEN and asset.get("url"):
+        url = asset["url"]
+    else:
+        url = asset.get("browser_download_url", "") or asset.get("url", "")
+
     if not url:
-        # For private repos, use the API URL with auth
-        url = asset.get("url", "")
+        print("[Updater] No download URL found in asset")
+        return False
 
     headers = _github_headers()
-    # For browser_download_url, no special accept header needed
-    # For API URL on private repos, need octet-stream
+    # API URL needs octet-stream accept header to get the binary
     if "api.github.com" in url:
         headers["Accept"] = "application/octet-stream"
 
