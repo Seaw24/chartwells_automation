@@ -27,13 +27,42 @@ except (ImportError, ModuleNotFoundError):
 
 
 class AutoFillRuntimeController:
+    """
+    Glue between the AutoFillCenter view and the backend engines.
+
+    Responsibilities:
+      • Wire up Run / Stop button state.
+      • Marshall background-thread events back to the Tk main thread.
+      • Render log events with severity colors and update the live
+        success / warning / error badges.
+    """
+
+    # Characters that appear in legacy "decorative divider" lines we want
+    # to suppress in the UI (the cleaner sections + tags do the visual job).
+    _DIVIDER_CHARS = set("=-─━")
+
     def __init__(self, view):
         self.view = view
 
-    def _append_log(self, log_widget, text):
+    # ── log rendering ─────────────────────────────────────────────
+    def _append_log(self, log_widget, text, kind="info"):
+        """
+        Append one line to ``log_widget`` on the Tk main thread.
+
+        ``kind`` is the structured event type emitted by the tracker
+        ('info', 'detail', 'section', 'success', 'warning', 'error',
+        'summary'). Each kind maps to a Text-widget tag that carries the
+        color/weight, configured once in ``autofill_center._configure_log_tags``.
+        """
+        # Skip the legacy "===" / "---" decorator lines entirely — the
+        # styled section tag is the divider now.
+        stripped = text.strip()
+        if stripped and set(stripped) <= self._DIVIDER_CHARS:
+            return
+
         def _do():
             log_widget.configure(state="normal")
-            log_widget.insert("end", text + "\n")
+            log_widget.insert("end", text + "\n", kind)
             log_widget.see("end")
             log_widget.configure(state="disabled")
         self.view.after(0, _do)
@@ -46,6 +75,42 @@ class AutoFillRuntimeController:
     def _set_status(self, label, text, color=TEXT_MUTED):
         self.view.after(0, lambda: label.configure(
             text=text, text_color=color))
+
+    # ── live stat badges (✓ / ⚠ / ✗) ──────────────────────────────
+    def _reset_stats(self, prefix):
+        """Reset the counters and their on-screen badges before a new run."""
+        setattr(self.view, f"{prefix}_succ_count", 0)
+        setattr(self.view, f"{prefix}_warn_count", 0)
+        setattr(self.view, f"{prefix}_fail_count", 0)
+        self._refresh_stats(prefix)
+
+    def _bump_stats(self, prefix, kind):
+        """Increment the right counter for the event ``kind`` and re-render."""
+        if kind == "success":
+            attr = f"{prefix}_succ_count"
+        elif kind == "warning":
+            attr = f"{prefix}_warn_count"
+        elif kind == "error":
+            attr = f"{prefix}_fail_count"
+        else:
+            return
+        setattr(self.view, attr, getattr(self.view, attr, 0) + 1)
+        self.view.after(0, lambda: self._refresh_stats(prefix))
+
+    def _refresh_stats(self, prefix):
+        """Update the three badge labels for the given log card prefix."""
+        succ = getattr(self.view, f"{prefix}_succ_count", 0)
+        warn = getattr(self.view, f"{prefix}_warn_count", 0)
+        fail = getattr(self.view, f"{prefix}_fail_count", 0)
+        succ_lbl = getattr(self.view, f"{prefix}_succ_badge", None)
+        warn_lbl = getattr(self.view, f"{prefix}_warn_badge", None)
+        fail_lbl = getattr(self.view, f"{prefix}_fail_badge", None)
+        if succ_lbl is not None:
+            succ_lbl.configure(text=f"✓ {succ}")
+        if warn_lbl is not None:
+            warn_lbl.configure(text=f"⚠ {warn}")
+        if fail_lbl is not None:
+            fail_lbl.configure(text=f"✗ {fail}")
 
     def _stop_cash_sheet_autofill(self):
         if hasattr(self.view, '_cs_stop_event'):
@@ -62,6 +127,32 @@ class AutoFillRuntimeController:
         if not reports_dir:
             messagebox.showwarning("Missing", "Select the Day Reports folder.")
             return
+        print_settings = None
+        if self.view._cs_auto_print.get() == 1:
+            printer_name = self.view._printer_var.get()
+            if printer_name == "System Default":
+                printer_name = None
+            try:
+                copies = int(self.view._print_copies_var.get())
+            except Exception:
+                messagebox.showwarning(
+                    "Printer Settings",
+                    "Copies must be a whole number, like 1 or 2.")
+                return
+            if copies < 1:
+                messagebox.showwarning(
+                    "Printer Settings",
+                    "Copies must be at least 1.")
+                return
+            print_settings = {
+                "printer_name": printer_name,
+                "color_mode": self.view._print_color_var.get(),
+                "paper_size": self.view._print_paper_var.get(),
+                "duplex": self.view._print_duplex_var.get() == 1,
+                "copies": copies,
+                "orientation": self.view._print_orientation_var.get(),
+                "collate": self.view._print_collate_var.get() == 1,
+            }
 
         self.view._cs_stop_event = threading.Event()
         self.view._cs_run_btn.configure(
@@ -69,33 +160,34 @@ class AutoFillRuntimeController:
             fg_color="#D9534F", hover_color="#C9302C",
             command=self._stop_cash_sheet_autofill)
         self._clear_log(self.view._cs_log)
-        self._set_status(self.view._cs_status, "Processing...", ORANGE)
+        self._reset_stats("_cs")
+        self._set_status(self.view._cs_status, "Processing…", ORANGE)
 
         def _on_event(kind, msg):
-            self._append_log(self.view._cs_log, msg)
+            self._append_log(self.view._cs_log, msg, kind=kind)
+            self._bump_stats("_cs", kind)
 
         def _worker():
             try:
-                printer_name = self.view._printer_var.get()
-                if printer_name == "System Default":
-                    printer_name = None
-
                 engine = CashSheetAutofillEngine(
                     reports_dir=reports_dir, casheet_dir=casheet_dir,
                     on_event=_on_event, stop_event=self.view._cs_stop_event,
                     auto_print=self.view._cs_auto_print.get() == 1,
-                    printer_name=printer_name)
+                    printer_name=print_settings.get("printer_name") if print_settings else None,
+                    print_settings=print_settings)
                 engine.execute()
                 self.view.after(
                     0, lambda: self._on_cash_sheet_done(engine.tracker))
             except Exception as exc:
-                self._append_log(self.view._cs_log,
-                                 f"\n❌ Unexpected error: {exc}")
+                self._append_log(
+                    self.view._cs_log,
+                    f"Unexpected error: {exc}", kind="error")
                 self.view.after(0, lambda: self._on_cash_sheet_done(None))
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_cash_sheet_done(self, tracker):
+        # Restore the Run button regardless of how the run ended.
         self.view._cs_run_btn.configure(
             state="normal", text="🚀  Run Cash Sheet Autofill",
             fg_color=PURPLE, hover_color=PURPLE_DARK,
@@ -106,14 +198,12 @@ class AutoFillRuntimeController:
         if hasattr(self.view, '_cs_stop_event') and self.view._cs_stop_event.is_set():
             self._set_status(self.view._cs_status, "Cancelled", ORANGE)
             return
-        s, f, w = len(tracker.successful), len(
-            tracker.failed), len(tracker.warnings)
+        # Single status word — the badges already show the counts.
+        s, f, _ = len(tracker.successful), len(tracker.failed), len(tracker.warnings)
         if f == 0:
-            self._set_status(
-                self.view._cs_status, f"Done: {s} ok, {w} warnings", GREEN)
+            self._set_status(self.view._cs_status, "Done", GREEN)
         else:
-            self._set_status(
-                self.view._cs_status, f"Done: {s} ok, {f} failed, {w} warnings", RED)
+            self._set_status(self.view._cs_status, "Done with errors", RED)
         if s > 0:
             self.view._record_and_refresh("cash_sheet")
 
@@ -125,8 +215,9 @@ class AutoFillRuntimeController:
 
     def _run_tender_autofill(self):
         if not _HAS_TENDER:
-            self._append_log(self.view._tb_log,
-                             "❌ Tender module not available.")
+            self._append_log(
+                self.view._tb_log, "Tender module not available.",
+                kind="error")
             return
 
         casheet_dir = self.view._tb_folder_entry.get().strip()
@@ -146,10 +237,12 @@ class AutoFillRuntimeController:
             fg_color="#D9534F", hover_color="#C9302C",
             command=self._stop_tender_autofill)
         self._clear_log(self.view._tb_log)
-        self._set_status(self.view._tb_status, "Processing...", ORANGE)
+        self._reset_stats("_tb")
+        self._set_status(self.view._tb_status, "Processing…", ORANGE)
 
         def _on_event(kind, msg):
-            self._append_log(self.view._tb_log, msg)
+            self._append_log(self.view._tb_log, msg, kind=kind)
+            self._bump_stats("_tb", kind)
 
         def _worker():
             try:
@@ -160,8 +253,9 @@ class AutoFillRuntimeController:
                 self.view.after(
                     0, lambda: self._on_tender_done(engine.tracker))
             except Exception as exc:
-                self._append_log(self.view._tb_log,
-                                 f"\n❌ Unexpected error: {exc}")
+                self._append_log(
+                    self.view._tb_log,
+                    f"Unexpected error: {exc}", kind="error")
                 self.view.after(0, lambda: self._on_tender_done(None))
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -179,10 +273,9 @@ class AutoFillRuntimeController:
             return
         s, f = len(tracker.successful), len(tracker.failed)
         if f == 0:
-            self._set_status(self.view._tb_status, f"Done: {s} ok", GREEN)
+            self._set_status(self.view._tb_status, "Done", GREEN)
         else:
-            self._set_status(self.view._tb_status,
-                             f"Done: {s} ok, {f} failed", RED)
+            self._set_status(self.view._tb_status, "Done with errors", RED)
         if s > 0:
             self.view._record_and_refresh("tender")
 
@@ -258,9 +351,9 @@ class AutoFillRuntimeController:
 
     def _toggle_printer_dropdown(self):
         if self.view._cs_auto_print.get() == 1:
-            self.view._printer_frame.pack(side="left")
+            self.view._printer_frame.grid()
         else:
-            self.view._printer_frame.pack_forget()
+            self.view._printer_frame.grid_remove()
 
     def _refresh_printers(self):
         printers = ExcelPrinter.get_available_printers()

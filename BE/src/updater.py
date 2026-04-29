@@ -31,7 +31,12 @@ import subprocess
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
-
+import ssl
+try:
+    import certifi
+    _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    _SSL_CONTEXT = None
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -47,7 +52,7 @@ GITHUB_REPO = "Seaw24/chartwells_automation"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 # Current version — bump this each time you build a new release
-CURRENT_VERSION = "1.0.3"
+CURRENT_VERSION = "1.0.4"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -88,8 +93,7 @@ def _fetch_latest_release() -> dict | None:
     req = Request(url, headers=_github_headers())
 
     try:
-        with urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read().decode())
+        with urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:            return json.loads(resp.read().decode())
     except (URLError, HTTPError, json.JSONDecodeError) as e:
         print(f"[Updater] Could not check for updates: {e}")
         return None
@@ -132,7 +136,7 @@ def _download_asset(asset: dict, dest_path: Path, progress_callback=None) -> boo
     req = Request(url, headers=headers)
 
     try:
-        with urlopen(req, timeout=60) as resp:
+        with urlopen(req, timeout=60, context=_SSL_CONTEXT) as resp:           
             total = int(resp.headers.get("Content-Length", 0))
             downloaded = 0
             chunk_size = 64 * 1024  # 64KB chunks
