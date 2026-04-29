@@ -247,6 +247,9 @@ class ExcelPrinter:
                 f"Printer '{requested}' is not installed. "
                 f"Available printers: {', '.join(available)}"
             )
+        installed_name = next(
+            (p for p in available if p.lower() == requested.lower()),
+            requested)
 
         current_active = ""
         try:
@@ -255,17 +258,39 @@ class ExcelPrinter:
             pass
 
         candidates = [requested]
+        if installed_name != requested:
+            candidates.append(installed_name)
         if " on " in current_active:
-            candidates.append(f"{requested} on {current_active.split(' on ', 1)[1].strip()}")
+            current_port = current_active.split(" on ", 1)[1].strip()
+            candidates.append(f"{installed_name} on {current_port}")
+
+        try:
+            import winreg
+            for registry_path in (
+                r"Software\Microsoft\Windows NT\CurrentVersion\Devices",
+                r"Software\Microsoft\Windows NT\CurrentVersion\PrinterPorts",
+            ):
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_path) as key:
+                    for index in range(winreg.QueryInfoKey(key)[1]):
+                        name, value, _ = winreg.EnumValue(key, index)
+                        if name.lower() != installed_name.lower():
+                            continue
+                        parts = [part.strip() for part in str(value).split(",")]
+                        if len(parts) > 1 and parts[1]:
+                            port = parts[1]
+                            candidates.append(
+                                f"{name} on {port if port.endswith(':') else port + ':'}")
+        except Exception:
+            pass
 
         try:
             import win32print
-            handle = win32print.OpenPrinter(requested)
+            handle = win32print.OpenPrinter(installed_name)
             info = win32print.GetPrinter(handle, 2)
             win32print.ClosePrinter(handle)
             raw_port = str(info.get("pPortName", "")).strip()
             if raw_port:
-                candidates.append(f"{requested} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
+                candidates.append(f"{installed_name} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
         except Exception:
             pass
 
@@ -273,7 +298,7 @@ class ExcelPrinter:
         # These are allocated dynamically per Excel session and don't match the
         # real Windows port name, so we have to enumerate them.
         for i in range(100):
-            candidates.append(f"{requested} on Ne{i:02d}:")
+            candidates.append(f"{installed_name} on Ne{i:02d}:")
 
         # Try each candidate name (Excel sometimes wants "Name on Port:").
         # Stop at the first one Excel accepts.
