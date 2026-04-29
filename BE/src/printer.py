@@ -269,6 +269,12 @@ class ExcelPrinter:
         except Exception:
             pass
 
+        # Network printers in Excel COM use virtual ports Ne00:–Ne99:.
+        # These are allocated dynamically per Excel session and don't match the
+        # real Windows port name, so we have to enumerate them.
+        for i in range(100):
+            candidates.append(f"{requested} on Ne{i:02d}:")
+
         # Try each candidate name (Excel sometimes wants "Name on Port:").
         # Stop at the first one Excel accepts.
         last_error = None
