@@ -108,6 +108,9 @@ class AutoFillCenter(ctk.CTkFrame):
         self._refresh_tracking_ui()
 
     def __getattr__(self, name):
+        # Forward any private attribute access to one of the helper
+        # controllers — keeps the public surface of AutoFillCenter focused
+        # on view construction while the runtime/config logic lives elsewhere.
         if name.startswith("_"):
             runtime_controller = self.__dict__.get("_runtime_controller")
             config_controller = self.__dict__.get("_config_controller")
@@ -116,6 +119,32 @@ class AutoFillCenter(ctk.CTkFrame):
                     return getattr(controller, name)
         raise AttributeError(
             f"{type(self).__name__!s} has no attribute {name!r}")
+
+    # ── Log card helpers (shared by both autofill tabs) ─────────────
+    def _build_stat_badge(self, parent, color, initial="0"):
+        """Pill-style label for one of the live ✓ / ⚠ / ✗ counters."""
+        badge = ctk.CTkLabel(
+            parent, text=initial,
+            font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+            text_color=color, fg_color="transparent")
+        badge.pack(side="right", padx=(4, 0))
+        return badge
+
+    def _configure_log_tags(self, log_widget):
+        """
+        Attach Text-widget tags so structured log events get the right color.
+
+        The tag names match the ``kind`` strings emitted by ProcessingTracker
+        (and by the printer's ``_log`` helper). Lines come in via
+        ``log_widget.insert("end", text + "\\n", kind)``.
+        """
+        log_widget.tag_config("info",    foreground=TEXT)
+        log_widget.tag_config("detail",  foreground=TEXT_SEC)
+        log_widget.tag_config("section", foreground=PURPLE)
+        log_widget.tag_config("success", foreground=GREEN)
+        log_widget.tag_config("warning", foreground=ORANGE)
+        log_widget.tag_config("error",   foreground=RED)
+        log_widget.tag_config("summary", foreground=TEXT)
 
     # ══════════════════════════════════════════════════════════════
     #  HEADER (with time-saved badge)
@@ -287,24 +316,28 @@ class AutoFillCenter(ctk.CTkFrame):
         self._cs_folder2_entry.configure(state="normal")
         self._cs_folder2_entry.insert(0, REPORTS_FOLDER)
         self._cs_folder2_entry.configure(state="readonly")
-        # ── Print Settings Row ──
+        # ── Print Settings ──
         print_frame = ctk.CTkFrame(inner, fg_color="transparent")
         print_frame.grid(row=3, column=0, columnspan=3,
                          sticky="ew", pady=(10, 0))
+        print_frame.grid_columnconfigure(0, weight=1)
 
         self._cs_auto_print = ctk.CTkCheckBox(
             print_frame, text="🖨️ Auto-print after filling",
             font=ctk.CTkFont(family=FONT, size=11),
             fg_color=PURPLE, hover_color=PURPLE_DARK, border_color=BORDER,
             command=self._toggle_printer_dropdown)
-        self._cs_auto_print.pack(side="left")
+        self._cs_auto_print.grid(row=0, column=0, sticky="w")
 
         # Printer selector (hidden until checkbox is checked)
         self._printer_frame = ctk.CTkFrame(print_frame, fg_color="transparent")
+        self._printer_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self._printer_frame.grid_columnconfigure(1, weight=1)
+        self._printer_frame.grid_remove()
 
         ctk.CTkLabel(self._printer_frame, text="Printer:",
                      font=ctk.CTkFont(family=FONT, size=11),
-                     text_color=TEXT_SEC).pack(side="left", padx=(12, 4))
+                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w", padx=(0, 6))
 
         printers = ExcelPrinter.get_available_printers()
         default = ExcelPrinter.get_default_printer() or ""
@@ -319,7 +352,7 @@ class AutoFillCenter(ctk.CTkFrame):
             dropdown_font=ctk.CTkFont(family=FONT, size=11),
             width=350, height=28, corner_radius=8,
             dynamic_resizing=False)
-        self._printer_dropdown.pack(side="left", padx=(0, 8))
+        self._printer_dropdown.grid(row=0, column=1, sticky="ew", padx=(0, 8))
 
         # Refresh printers button
         ctk.CTkButton(
@@ -327,6 +360,79 @@ class AutoFillCenter(ctk.CTkFrame):
             corner_radius=6, fg_color=BG, text_color=TEXT_SEC,
             hover_color=BORDER, font=ctk.CTkFont(size=12),
             command=self._refresh_printers, cursor="hand2"
+        ).grid(row=0, column=2, sticky="w")
+
+        self._print_color_var = ctk.StringVar(value="color")
+        self._print_paper_var = ctk.StringVar(value="Letter")
+        self._print_orientation_var = ctk.StringVar(value="landscape")
+        self._print_duplex_var = ctk.IntVar(value=0)
+        self._print_collate_var = ctk.IntVar(value=1)
+        self._print_copies_var = ctk.IntVar(value=1)
+
+        options_row = ctk.CTkFrame(self._printer_frame, fg_color="transparent")
+        options_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        for col in range(6):
+            options_row.grid_columnconfigure(col, weight=1)
+
+        ctk.CTkOptionMenu(
+            options_row, variable=self._print_color_var,
+            values=["color", "bw"], width=100, height=28,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, button_color=PURPLE_DARK,
+            button_hover_color=PURPLE,
+            dropdown_font=ctk.CTkFont(family=FONT, size=11),
+            dynamic_resizing=False
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        ctk.CTkOptionMenu(
+            options_row, variable=self._print_paper_var,
+            values=["Letter", "Legal", "A4", "A3", "Tabloid"],
+            width=100, height=28,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, button_color=PURPLE_DARK,
+            button_hover_color=PURPLE,
+            dropdown_font=ctk.CTkFont(family=FONT, size=11),
+            dynamic_resizing=False
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 6))
+
+        ctk.CTkOptionMenu(
+            options_row, variable=self._print_orientation_var,
+            values=["landscape", "portrait"], width=110, height=28,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, button_color=PURPLE_DARK,
+            button_hover_color=PURPLE,
+            dropdown_font=ctk.CTkFont(family=FONT, size=11),
+            dynamic_resizing=False
+        ).grid(row=0, column=2, sticky="ew", padx=(0, 6))
+
+        ctk.CTkCheckBox(
+            options_row, text="Double-sided",
+            variable=self._print_duplex_var,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            border_color=BORDER
+        ).grid(row=0, column=3, sticky="w", padx=(0, 6))
+
+        ctk.CTkCheckBox(
+            options_row, text="Collate",
+            variable=self._print_collate_var,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            border_color=BORDER
+        ).grid(row=0, column=4, sticky="w", padx=(0, 6))
+
+        copies_frame = ctk.CTkFrame(options_row, fg_color="transparent")
+        copies_frame.grid(row=0, column=5, sticky="e")
+        ctk.CTkLabel(
+            copies_frame, text="Copies:",
+            font=ctk.CTkFont(family=FONT, size=11),
+            text_color=TEXT_SEC
+        ).pack(side="left", padx=(0, 4))
+        ctk.CTkEntry(
+            copies_frame, textvariable=self._print_copies_var,
+            width=48, height=28,
+            font=ctk.CTkFont(family=FONT, size=11),
+            border_color=BORDER
         ).pack(side="left")
 
         bf = ctk.CTkFrame(inner, fg_color="transparent")
@@ -351,10 +457,20 @@ class AutoFillCenter(ctk.CTkFrame):
             fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
             font=ctk.CTkFont(family=FONT, size=11),
             command=lambda: self._clear_log(self._cs_log)).pack(side="right")
+        # Live counters — updated as events stream in. Order on the right
+        # is: [Clear button] [✗ fail] [⚠ warn] [✓ ok] [Status]
+        self._cs_fail_badge = self._build_stat_badge(log_header, RED, "✗ 0")
+        self._cs_warn_badge = self._build_stat_badge(log_header, ORANGE, "⚠ 0")
+        self._cs_succ_badge = self._build_stat_badge(log_header, GREEN, "✓ 0")
         self._cs_status = ctk.CTkLabel(
             log_header, text="Ready",
             font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
-        self._cs_status.pack(side="right", padx=(0, 10))
+        self._cs_status.pack(side="right", padx=(8, 10))
+
+        # Thin divider between the header row and the textbox — replaces
+        # the noisy "===" lines we used to print into the log.
+        ctk.CTkFrame(log_card, fg_color=BORDER, height=1).pack(
+            fill="x", padx=12, pady=(0, 6))
 
         self._cs_log = ctk.CTkTextbox(
             log_card, fg_color=BG, corner_radius=8,
@@ -363,6 +479,7 @@ class AutoFillCenter(ctk.CTkFrame):
             scrollbar_button_color="#D1D1D6",
             scrollbar_button_hover_color="#A1A1A6")
         self._cs_log.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self._configure_log_tags(self._cs_log)
         return page
 
     # ══════════════════════════════════════════════════════════════
@@ -412,7 +529,8 @@ class AutoFillCenter(ctk.CTkFrame):
             self._tb_run_btn.configure(state="disabled",
                                        text="⚠️  Tender module not found")
 
-        # Result log
+        # Result log — same structure as the cash sheet card so the user
+        # gets a consistent experience across tabs.
         log_card = _Card(page)
         log_card.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
         log_header = ctk.CTkFrame(log_card, fg_color="transparent")
@@ -425,10 +543,16 @@ class AutoFillCenter(ctk.CTkFrame):
             fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
             font=ctk.CTkFont(family=FONT, size=11),
             command=lambda: self._clear_log(self._tb_log)).pack(side="right")
+        self._tb_fail_badge = self._build_stat_badge(log_header, RED, "✗ 0")
+        self._tb_warn_badge = self._build_stat_badge(log_header, ORANGE, "⚠ 0")
+        self._tb_succ_badge = self._build_stat_badge(log_header, GREEN, "✓ 0")
         self._tb_status = ctk.CTkLabel(
             log_header, text="Ready",
             font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
-        self._tb_status.pack(side="right", padx=(0, 10))
+        self._tb_status.pack(side="right", padx=(8, 10))
+
+        ctk.CTkFrame(log_card, fg_color=BORDER, height=1).pack(
+            fill="x", padx=12, pady=(0, 6))
 
         self._tb_log = ctk.CTkTextbox(
             log_card, fg_color=BG, corner_radius=8,
@@ -437,6 +561,7 @@ class AutoFillCenter(ctk.CTkFrame):
             scrollbar_button_color="#D1D1D6",
             scrollbar_button_hover_color="#A1A1A6")
         self._tb_log.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        self._configure_log_tags(self._tb_log)
         return page
 
     # ══════════════════════════════════════════════════════════════

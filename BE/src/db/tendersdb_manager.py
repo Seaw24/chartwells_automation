@@ -18,8 +18,13 @@ import re
 from decimal import Decimal
 from datetime import datetime
 
-import psycopg2
-import psycopg2.extras  # for RealDictCursor
+try:
+    import psycopg2
+    import psycopg2.extras  # for RealDictCursor
+except ModuleNotFoundError:
+    psycopg2 = None
+
+_DB_ERROR = psycopg2.Error if psycopg2 else Exception
 
 try:
     from dotenv import load_dotenv
@@ -105,6 +110,12 @@ class TendersDBManager:
         """Open a persistent connection to Supabase PostgreSQL."""
         if not self._database_url:
             return
+        if psycopg2 is None:
+            print(
+                "[DB] psycopg2 is not installed — run "
+                "'pip install -r requirements.txt' to enable DB operations."
+            )
+            return
         try:
             self._conn = psycopg2.connect(
                 self._database_url,
@@ -113,7 +124,7 @@ class TendersDBManager:
             self._conn.autocommit = False
             self._table_columns = None
             print("[DB] Connected to Supabase PostgreSQL")
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Connection failed: {e}")
             self._conn = None
 
@@ -151,7 +162,7 @@ class TendersDBManager:
                 )
                 rows = cur.fetchall()
             self._table_columns = {row["column_name"] for row in rows}
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error loading schema info: {e}")
             self.conn.rollback()
             self._table_columns = set()
@@ -292,7 +303,7 @@ class TendersDBManager:
                 cur.execute(sql, values)
             self.conn.commit()
             return True
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error inserting record: {e}")
             self.conn.rollback()
             return False
@@ -359,7 +370,7 @@ class TendersDBManager:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
             return self._normalize_rows(rows)
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching records: {e}")
             self.conn.rollback()
             return []
@@ -393,7 +404,7 @@ class TendersDBManager:
                 cur.execute(sql, params)
                 row = cur.fetchone()
             return row is not None
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error checking record existence: {e}")
             self.conn.rollback()
             return False
@@ -409,7 +420,7 @@ class TendersDBManager:
                 )
                 rows = cur.fetchall()
             return [r["location"] for r in rows if r.get("location")]
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching locations: {e}")
             self.conn.rollback()
             return []
@@ -423,7 +434,7 @@ class TendersDBManager:
                 cur.execute("SELECT COUNT(*) AS cnt FROM tender_records")
                 row = cur.fetchone()
             return row["cnt"] if row else 0
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error counting rows: {e}")
             self.conn.rollback()
             return 0
@@ -478,7 +489,7 @@ class TendersDBManager:
                 cur.execute(sql, params)
                 row = cur.fetchone()
             return self._normalize_row(dict(row) if row else {})
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching summary: {e}")
             self.conn.rollback()
             return {}
@@ -532,7 +543,7 @@ class TendersDBManager:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
             return self._normalize_rows(rows)
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching daily totals: {e}")
             self.conn.rollback()
             return []
@@ -586,7 +597,7 @@ class TendersDBManager:
                 cur.execute(sql, params)
                 rows = cur.fetchall()
             return self._normalize_rows(rows)
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching location totals: {e}")
             self.conn.rollback()
             return []
@@ -608,7 +619,7 @@ class TendersDBManager:
                 max_d = str(row["max_d"]) if row["max_d"] else None
                 return min_d, max_d
             return None, None
-        except psycopg2.Error as e:
+        except _DB_ERROR as e:
             print(f"[DB] Error fetching date range: {e}")
             self.conn.rollback()
             return None, None

@@ -14,14 +14,17 @@ for _p in (_UI_DIR, _ROOT_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from BE.src.db.tendersdb_manager import TendersDBManager
+from BE.src.updater import check_for_updates, CURRENT_VERSION
+
 try:
-    from BE.src.db.tendersdb_manager import TendersDBManager
-    from BE.src.updater import check_for_updates, CURRENT_VERSION
     from components.sidebar import SideBar
     from components.autofill_center import AutoFillCenter
     from components.taskManager import TaskManager
     from components.analyticsPage import AnalyticsPage
-except ModuleNotFoundError:
+except ModuleNotFoundError as exc:
+    if exc.name != "components":
+        raise
     from UI.components.sidebar import SideBar
     from UI.components.autofill_center import AutoFillCenter
     from UI.components.taskManager import TaskManager
