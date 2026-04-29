@@ -1,0 +1,71 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create build environment file
+        shell: pwsh
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          @"
+          DATABASE_URL=$env:DATABASE_URL
+          UPDATER_TOKEN=$env:UPDATER_TOKEN
+          ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY
+          "@ | Set-Content -Path .env -Encoding UTF8
+
+      - name: Build with PyInstaller
+        run: pyinstaller chartwells.spec --clean
+
+      - name: Verify EXE
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist\ChartwellsAutomation\ChartwellsAutomation.exe")) {
+            throw "Expected EXE not found at dist\ChartwellsAutomation\ChartwellsAutomation.exe"
+          }
+
+      - name: Zip build
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\ChartwellsAutomation" -DestinationPath "ChartwellsAutomation-windows.zip" -Force
+
+      - name: Upload workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChartwellsAutomation-windows
+          path: ChartwellsAutomation-windows.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ChartwellsAutomation-windows.zip
+          generate_release_notes: true
