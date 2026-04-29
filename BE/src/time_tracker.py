@@ -18,7 +18,6 @@ The JSON file lives next to this module at BE/src/time_saved.json.
 
 import sys
 import json
-import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -27,10 +26,11 @@ def _get_data_file():
     filename = "time_saved.json"
     if getattr(sys, 'frozen', False):
         editable = Path(sys.executable).parent / "config" / filename
-        bundled = Path(sys._MEIPASS) / "BE" / "src" / filename
         if not editable.exists():
             editable.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(bundled, editable)
+            # In frozen mode there's no bundled seed file — that's fine.
+            # _load() will fall back to _DEFAULTS when the file doesn't exist,
+            # and _save() will create it on the first record_run() call.
         return editable
     return Path(__file__).parent / filename
 
