@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+from PyInstaller.utils.hooks.tcl_tk import tcltk_info
 
 block_cipher = None
 
@@ -8,6 +9,8 @@ hiddenimports = [
     'psycopg2',
     'psycopg2._psycopg',
     'dotenv',
+    'tkinter',
+    '_tkinter',
     'win32com',
     'win32com.client',
     'win32print',
@@ -51,6 +54,7 @@ datas = [
     data for data in datas
     if Path(data[0]).exists() or data[0] != 'logo/chartwells.jfif'
 ]
+datas += tcltk_info.data_files
 
 excludes = ['tkinter.test', 'test', 'tests', 'pytest']
 

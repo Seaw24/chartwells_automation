@@ -41,15 +41,18 @@ except ImportError:
 try:
     from dotenv import load_dotenv
     try:
-        from BE.src.path_helper import get_app_dir
+        from BE.src.path_helper import get_app_dir, get_bundle_dir
     except ImportError:
         try:
-            from .path_helper import get_app_dir
+            from .path_helper import get_app_dir, get_bundle_dir
         except ImportError:
             get_app_dir = None
+            get_bundle_dir = None
 
     if get_app_dir and (get_app_dir() / ".env").exists():
         load_dotenv(get_app_dir() / ".env")
+    elif get_bundle_dir and (get_bundle_dir() / ".env").exists():
+        load_dotenv(get_bundle_dir() / ".env")
     else:
         load_dotenv()
 except ImportError:
@@ -64,7 +67,7 @@ GITHUB_REPO = "Seaw24/chartwells_automation"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("UPDATER_TOKEN", "")
 
 # Current version — bump this each time you build a new release
-CURRENT_VERSION = "1.0.1"
+CURRENT_VERSION = "1.0.6"
 
 
 # ═══════════════════════════════════════════════════════════════
