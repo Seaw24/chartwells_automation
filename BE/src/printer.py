@@ -424,10 +424,12 @@ class ExcelPrinter:
                 win32print.ClosePrinter(handle)
             except Exception:
                 pass
-            raise PrinterError(
-                f"Could not apply printer options to '{target_printer}': {exc}. "
-                "Check printer permissions or change the settings in the printer driver."
-            ) from exc
+            self._log(
+                f"  WARNING: Could not apply color/duplex settings to '{target_printer}': {exc}. "
+                "Printing will continue on the selected printer using its current driver defaults. "
+                "Set color/duplex manually in Windows printer properties if needed.",
+                kind="warning")
+            self._windows_dev_mode_original = None
 
     def _restore_windows_printer_options(self):
         if not self._windows_dev_mode_original:
