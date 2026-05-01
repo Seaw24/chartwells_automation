@@ -30,13 +30,21 @@ jobs:
       - name: Create build environment file
         shell: pwsh
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || vars.DATABASE_URL }}
+          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN || vars.UPDATER_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || vars.ANTHROPIC_API_KEY }}
         run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) { $missing += "DATABASE_URL" }
+          if ([string]::IsNullOrWhiteSpace($env:UPDATER_TOKEN)) { $missing += "UPDATER_TOKEN" }
+          if ([string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY)) { $missing += "ANTHROPIC_API_KEY" }
+          if ($missing.Count -gt 0) {
+            throw "Missing required GitHub secret(s) or variable(s): $($missing -join ', ')"
+          }
+
           @"
           DATABASE_URL=$env:DATABASE_URL
-          UPDATER_TOKEN=$env:UPDATER_TOKEN
+          GITHUB_TOKEN=$env:UPDATER_TOKEN
           ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY
           "@ | Set-Content -Path .env -Encoding UTF8
 
@@ -49,6 +57,11 @@ jobs:
           if (!(Test-Path "dist\ChartwellsAutomation\ChartwellsAutomation.exe")) {
             throw "Expected EXE not found at dist\ChartwellsAutomation\ChartwellsAutomation.exe"
           }
+
+      - name: Add runtime environment file
+        shell: pwsh
+        run: |
+          Copy-Item -Path ".env" -Destination "dist\ChartwellsAutomation\.env" -Force
 
       - name: Zip build
         shell: pwsh

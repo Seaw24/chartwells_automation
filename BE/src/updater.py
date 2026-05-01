@@ -39,7 +39,18 @@ except ImportError:
     _SSL_CONTEXT = None
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    try:
+        from BE.src.path_helper import get_app_dir
+    except ImportError:
+        try:
+            from .path_helper import get_app_dir
+        except ImportError:
+            get_app_dir = None
+
+    if get_app_dir and (get_app_dir() / ".env").exists():
+        load_dotenv(get_app_dir() / ".env")
+    else:
+        load_dotenv()
 except ImportError:
     pass
 
@@ -49,7 +60,7 @@ except ImportError:
 
 GITHUB_REPO = "Seaw24/chartwells_automation"
 # optional, for private repos
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("UPDATER_TOKEN", "")
 
 # Current version — bump this each time you build a new release
 CURRENT_VERSION = "1.0.4"
