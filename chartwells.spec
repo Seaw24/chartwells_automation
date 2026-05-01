@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks.tcl_tk import tcltk_info
 
 block_cipher = None
@@ -42,6 +43,11 @@ hiddenimports = [
     'BE.src.utils',
     'BE.src.cache',
 ]
+hiddenimports = list(dict.fromkeys(
+    hiddenimports
+    + collect_submodules('BE')
+    + collect_submodules('UI.components')
+))
 
 datas = [
     ('logo/chartwells.jfif', 'logo'),

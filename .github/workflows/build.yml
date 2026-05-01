@@ -111,6 +111,9 @@ jobs:
             --onefile `
             --windowed `
             --clean `
+            --paths "." `
+            --collect-submodules BE `
+            --collect-submodules UI.components `
             --add-data ".env;." `
             --add-data "BE/src/cash_sheet_filler/cash_sheet_config.json;BE/src/cash_sheet_filler" `
             --add-data "BE/src/tender_break/tender_config.json;BE/src/tender_break" `
