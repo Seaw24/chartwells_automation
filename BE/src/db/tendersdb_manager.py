@@ -31,16 +31,19 @@ try:
     from pathlib import Path
 
     try:
-        from BE.src.path_helper import get_app_dir
+        from BE.src.path_helper import get_app_dir, get_bundle_dir
     except ImportError:
         try:
-            from ..path_helper import get_app_dir
+            from ..path_helper import get_app_dir, get_bundle_dir
         except ImportError:
             get_app_dir = None
+            get_bundle_dir = None
 
     env_paths = []
     if get_app_dir:
         env_paths.append(get_app_dir() / ".env")
+    if get_bundle_dir:
+        env_paths.append(get_bundle_dir() / ".env")
 
     # Search for .env from this file's location up to the project root.
     _this_dir = Path(__file__).resolve().parent
