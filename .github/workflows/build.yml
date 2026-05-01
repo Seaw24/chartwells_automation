@@ -2,6 +2,16 @@ name: Build Windows EXE
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Create a GitHub Release from this manual build
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Release tag, for example v1.0.4. Leave blank to use CURRENT_VERSION.
+        required: false
+        type: string
   push:
     tags:
       - 'v*.*.*'
@@ -22,6 +32,31 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Resolve release tag
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ($env:EVENT_NAME -eq "workflow_dispatch") {
+            $tag = $env:INPUT_RELEASE_TAG
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              $updater = Get-Content "BE\src\updater.py" -Raw
+              if ($updater -notmatch 'CURRENT_VERSION\s*=\s*"([^"]+)"') {
+                throw "Could not find CURRENT_VERSION in BE\src\updater.py"
+              }
+              $tag = "v$($Matches[1].TrimStart('v'))"
+            }
+          } else {
+            $tag = $env:REF_NAME
+          }
+
+          if (!$tag.StartsWith("v")) {
+            $tag = "v$tag"
+          }
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -30,13 +65,21 @@ jobs:
       - name: Create build environment file
         shell: pwsh
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || vars.DATABASE_URL }}
+          UPDATER_TOKEN: ${{ secrets.UPDATER_TOKEN || vars.UPDATER_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || vars.ANTHROPIC_API_KEY }}
         run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) { $missing += "DATABASE_URL" }
+          if ([string]::IsNullOrWhiteSpace($env:UPDATER_TOKEN)) { $missing += "UPDATER_TOKEN" }
+          if ([string]::IsNullOrWhiteSpace($env:ANTHROPIC_API_KEY)) { $missing += "ANTHROPIC_API_KEY" }
+          if ($missing.Count -gt 0) {
+            throw "Missing required GitHub secret(s) or variable(s): $($missing -join ', ')"
+          }
+
           @"
           DATABASE_URL=$env:DATABASE_URL
-          UPDATER_TOKEN=$env:UPDATER_TOKEN
+          GITHUB_TOKEN=$env:UPDATER_TOKEN
           ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY
           "@ | Set-Content -Path .env -Encoding UTF8
 
@@ -49,6 +92,11 @@ jobs:
           if (!(Test-Path "dist\ChartwellsAutomation\ChartwellsAutomation.exe")) {
             throw "Expected EXE not found at dist\ChartwellsAutomation\ChartwellsAutomation.exe"
           }
+
+      - name: Add runtime environment file
+        shell: pwsh
+        run: |
+          Copy-Item -Path ".env" -Destination "dist\ChartwellsAutomation\.env" -Force
 
       - name: Zip build
         shell: pwsh
@@ -64,8 +112,11 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: ChartwellsAutomation-windows.zip
+          overwrite_files: true
           generate_release_notes: true

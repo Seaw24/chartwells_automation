@@ -64,7 +64,7 @@ class ExcelPrinter:
             self.settings.printer_name = printer_name
         self.printer_name = self.settings.printer_name
         self.tracker = tracker
-        self._windows_dev_mode_original = None
+        self._windows_default_printer_original = None
 
     def _log(self, msg, kind="info"):
         """
@@ -198,7 +198,7 @@ class ExcelPrinter:
     def _open_excel(self):
         try:
             import win32com.client
-            excel = win32com.client.Dispatch("Excel.Application")
+            excel = win32com.client.DispatchEx("Excel.Application")
             excel.Visible = False
             excel.DisplayAlerts = False
             return excel
@@ -222,50 +222,124 @@ class ExcelPrinter:
             pass
 
     def _print_all_windows(self, reports_dir, casheet_dir, sheet_names):
-        excel = self._open_excel()
+        excel = None
         try:
+            self._set_windows_default_printer_for_excel()
+            excel = self._open_excel()
             self._set_windows_printer(excel)
-            self._apply_windows_printer_options()
             self._print_reports_windows(excel, reports_dir)
             self._print_cash_sheets_windows(excel, casheet_dir, sheet_names)
             self.check_print_queue()
             self._log("Print complete.", kind="section")
             return True
         finally:
-            # Restore any DEVMODE we mutated and shut Excel down even on errors.
-            self._restore_windows_printer_options()
             self._close_excel(excel)
+            self._restore_windows_default_printer()
 
-    def _set_windows_printer(self, excel):
-        if not self.printer_name:
-            return
-
-        requested = str(self.printer_name).strip()
+    def _get_installed_windows_printer_name(self, requested):
         available = self._get_windows_printers()
         if available and requested.lower() not in {p.lower() for p in available}:
             raise PrinterError(
                 f"Printer '{requested}' is not installed. "
                 f"Available printers: {', '.join(available)}"
             )
+        return next(
+            (p for p in available if p.lower() == requested.lower()),
+            requested)
+
+    def _set_windows_default_printer_for_excel(self):
+        if not self.printer_name:
+            return
+
+        requested = str(self.printer_name).strip()
+        installed_name = self._get_installed_windows_printer_name(requested)
+        try:
+            import win32print
+            original = win32print.GetDefaultPrinter()
+            if original.strip().lower() == installed_name.lower():
+                return
+            self._log(
+                f"  Note: Temporarily setting Windows default printer to '{installed_name}' "
+                "so Excel can print to the selected printer. Original default "
+                "will be restored when printing finishes.",
+                kind="detail")
+            win32print.SetDefaultPrinter(installed_name)
+            self._windows_default_printer_original = original
+        except Exception as exc:
+            self._log(
+                f"  WARNING: Could not temporarily set Windows default printer "
+                f"to '{installed_name}': {exc}. Trying Excel printer selection directly.",
+                kind="warning")
+
+    def _restore_windows_default_printer(self):
+        if not self._windows_default_printer_original:
+            return
+        original = self._windows_default_printer_original
+        try:
+            import win32print
+            win32print.SetDefaultPrinter(original)
+            self._log(
+                f"  Restored Windows default printer to '{original}'.",
+                kind="detail")
+        except Exception as exc:
+            self._log(
+                f"  WARNING: Could not restore Windows default printer to '{original}': {exc}. "
+                "You may need to reset your default printer manually in Windows Settings.",
+                kind="warning")
+        finally:
+            self._windows_default_printer_original = None
+
+    def _set_windows_printer(self, excel):
+        if not self.printer_name:
+            return
+
+        requested = str(self.printer_name).strip()
+        installed_name = self._get_installed_windows_printer_name(requested)
 
         current_active = ""
         try:
             current_active = str(excel.ActivePrinter)
         except Exception:
             pass
+        active_name = current_active.split(" on ", 1)[0].strip()
+        if active_name.lower() == installed_name.lower():
+            self._log(f"Printer selected: {installed_name}", kind="detail")
+            return
 
         candidates = [requested]
+        if installed_name != requested:
+            candidates.append(installed_name)
         if " on " in current_active:
-            candidates.append(f"{requested} on {current_active.split(' on ', 1)[1].strip()}")
+            current_port = current_active.split(" on ", 1)[1].strip()
+            candidates.append(f"{installed_name} on {current_port}")
+
+        try:
+            import winreg
+            for registry_path in (
+                r"Software\Microsoft\Windows NT\CurrentVersion\Devices",
+                r"Software\Microsoft\Windows NT\CurrentVersion\PrinterPorts",
+            ):
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_path) as key:
+                    for index in range(winreg.QueryInfoKey(key)[1]):
+                        name, value, _ = winreg.EnumValue(key, index)
+                        if name.lower() != installed_name.lower():
+                            continue
+                        parts = [part.strip() for part in str(value).split(",")]
+                        if len(parts) > 1 and parts[1]:
+                            port = parts[1]
+                            candidates.append(
+                                f"{name} on {port if port.endswith(':') else port + ':'}")
+        except Exception:
+            pass
 
         try:
             import win32print
-            handle = win32print.OpenPrinter(requested)
+            handle = win32print.OpenPrinter(installed_name)
             info = win32print.GetPrinter(handle, 2)
             win32print.ClosePrinter(handle)
             raw_port = str(info.get("pPortName", "")).strip()
             if raw_port:
-                candidates.append(f"{requested} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
+                candidates.append(f"{installed_name} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
         except Exception:
             pass
 
@@ -273,7 +347,7 @@ class ExcelPrinter:
         # These are allocated dynamically per Excel session and don't match the
         # real Windows port name, so we have to enumerate them.
         for i in range(100):
-            candidates.append(f"{requested} on Ne{i:02d}:")
+            candidates.append(f"{installed_name} on Ne{i:02d}:")
 
         # Try each candidate name (Excel sometimes wants "Name on Port:").
         # Stop at the first one Excel accepts.
@@ -286,87 +360,22 @@ class ExcelPrinter:
             except Exception as exc:
                 last_error = exc
 
+        try:
+            import win32print
+            default_printer = win32print.GetDefaultPrinter()
+            if default_printer.strip().lower() == installed_name.lower():
+                self._log(
+                    f"Printer selected: {installed_name} (Windows default)",
+                    kind="detail")
+                return
+        except Exception:
+            pass
+
         raise PrinterError(
             f"Excel could not select printer '{requested}': {last_error}. "
             "Open Excel's Print dialog once, confirm the printer appears there, "
             "then retry with the same printer selected."
         )
-
-    def _apply_windows_printer_options(self):
-        target_printer = self.printer_name or self.get_default_printer()
-        if not target_printer:
-            raise PrinterError(
-                "No default printer is set on Windows. Select a printer in the app "
-                "or set a default printer in Windows Settings."
-            )
-        if self.settings.color_mode == "color" and not self.settings.duplex:
-            return
-
-        try:
-            import win32con
-            import win32print
-        except ImportError as exc:
-            raise PrinterError(
-                "Color/duplex printer options on Windows require pywin32."
-            ) from exc
-
-        try:
-            handle = win32print.OpenPrinter(target_printer)
-            info = win32print.GetPrinter(handle, 2)
-            devmode = info["pDevMode"]
-            original = {
-                "Color": getattr(devmode, "Color", None),
-                "Duplex": getattr(devmode, "Duplex", None),
-            }
-            if self.settings.color_mode == "bw":
-                devmode.Color = win32con.DMCOLOR_MONOCHROME
-            if self.settings.duplex:
-                devmode.Duplex = win32con.DMDUP_VERTICAL
-            info["pDevMode"] = devmode
-            self._log(
-                f"  Note: Temporarily modifying system defaults for '{target_printer}' "
-                f"(color={self.settings.color_mode}, duplex={self.settings.duplex}). "
-                f"Original settings will be restored when printing finishes."
-            )
-            win32print.SetPrinter(handle, 2, info, 0)
-            self._windows_dev_mode_original = (handle, info, original, target_printer)
-        except Exception as exc:
-            try:
-                win32print.ClosePrinter(handle)
-            except Exception:
-                pass
-            raise PrinterError(
-                f"Could not apply printer options to '{target_printer}': {exc}. "
-                "Check printer permissions or change the settings in the printer driver."
-            ) from exc
-
-    def _restore_windows_printer_options(self):
-        if not self._windows_dev_mode_original:
-            return
-        handle, info, original, target_printer_name = self._windows_dev_mode_original
-        try:
-            devmode = info["pDevMode"]
-            for key, value in original.items():
-                if value is not None:
-                    setattr(devmode, key, value)
-            info["pDevMode"] = devmode
-            import win32print
-            win32print.SetPrinter(handle, 2, info, 0)
-            self._log(
-                f"  Restored original printer defaults for '{target_printer_name}'."
-            )
-        except Exception as exc:
-            self._log(
-                f"  WARNING: Could not restore printer defaults for '{target_printer_name}': {exc}. "
-                f"You may need to reset color/duplex settings manually in Windows printer properties.",
-                kind="warning")
-        finally:
-            try:
-                import win32print
-                win32print.ClosePrinter(handle)
-            except Exception:
-                pass
-            self._windows_dev_mode_original = None
 
     def _print_reports_windows(self, excel, reports_dir):
         try:
