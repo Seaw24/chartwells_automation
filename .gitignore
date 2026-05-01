@@ -7,10 +7,7 @@ Tender Breakdown.xlsx
 .vscode/
 /myenv
 /.claude
-chartwells.spec
 /dist
 /build
 /DB
 .env
-*.spec
-    
