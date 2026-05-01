@@ -97,12 +97,61 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Path ".env" -Destination "dist\ChartwellsAutomation\.env" -Force
-          Copy-Item -Path "dist\ChartwellsAutomation\ChartwellsAutomation.exe" -Destination "ChartwellsAutomation.exe" -Force
 
       - name: Zip build
         shell: pwsh
         run: |
           Compress-Archive -Path "dist\ChartwellsAutomation" -DestinationPath "ChartwellsAutomation-windows.zip" -Force
+
+      - name: Build legacy one-file updater asset
+        shell: pwsh
+        run: |
+          pyinstaller UI/dashboard.py `
+            --name ChartwellsAutomation `
+            --onefile `
+            --windowed `
+            --clean `
+            --add-data ".env;." `
+            --add-data "BE/src/cash_sheet_filler/cash_sheet_config.json;BE/src/cash_sheet_filler" `
+            --add-data "BE/src/tender_break/tender_config.json;BE/src/tender_break" `
+            --add-data "BE/src/cash_sheet_filler/cash_sheet_config.json;config_defaults" `
+            --add-data "BE/src/tender_break/tender_config.json;config_defaults" `
+            --hidden-import psycopg2 `
+            --hidden-import psycopg2._psycopg `
+            --hidden-import dotenv `
+            --hidden-import tkinter `
+            --hidden-import _tkinter `
+            --hidden-import win32com `
+            --hidden-import win32com.client `
+            --hidden-import win32print `
+            --hidden-import win32api `
+            --hidden-import pythoncom `
+            --hidden-import pywintypes `
+            --hidden-import UI.components.sidebar `
+            --hidden-import UI.components.autofill_center `
+            --hidden-import UI.components.autofill_center_runtime `
+            --hidden-import UI.components.analyticsPage `
+            --hidden-import UI.components.aiChatPage `
+            --hidden-import UI.components.summaryPanel `
+            --hidden-import UI.components.taskManager `
+            --hidden-import UI.components.resizablePane `
+            --hidden-import BE.src.cash_sheet_filler.main `
+            --hidden-import BE.src.cash_sheet_filler.infor_parser `
+            --hidden-import BE.src.cash_sheet_filler.tavlo_parser `
+            --hidden-import BE.src.cash_sheet_filler.grubhub_parser `
+            --hidden-import BE.src.cash_sheet_filler.excel_autofiller `
+            --hidden-import BE.src.cash_sheet_filler.base_parser `
+            --hidden-import BE.src.cash_sheet_filler.config `
+            --hidden-import BE.src.tender_break.autofill `
+            --hidden-import BE.src.tender_break.config `
+            --hidden-import BE.src.db.tendersdb_manager `
+            --hidden-import BE.src.ai_engine `
+            --hidden-import BE.src.updater `
+            --hidden-import BE.src.printer `
+            --hidden-import BE.src.path_helper `
+            --hidden-import BE.src.utils `
+            --hidden-import BE.src.cache
+          Copy-Item -Path "dist\ChartwellsAutomation.exe" -Destination "ChartwellsAutomation.exe" -Force
 
       - name: Upload workflow artifact
         if: github.event_name == 'workflow_dispatch'
