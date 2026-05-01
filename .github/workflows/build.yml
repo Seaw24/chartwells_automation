@@ -97,6 +97,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item -Path ".env" -Destination "dist\ChartwellsAutomation\.env" -Force
+          Copy-Item -Path "dist\ChartwellsAutomation\ChartwellsAutomation.exe" -Destination "ChartwellsAutomation.exe" -Force
 
       - name: Zip build
         shell: pwsh
@@ -108,7 +109,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ChartwellsAutomation-windows
-          path: ChartwellsAutomation-windows.zip
+          path: |
+            ChartwellsAutomation-windows.zip
+            ChartwellsAutomation.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -117,6 +120,8 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          files: ChartwellsAutomation-windows.zip
+          files: |
+            ChartwellsAutomation-windows.zip
+            ChartwellsAutomation.exe
           overwrite_files: true
           generate_release_notes: true

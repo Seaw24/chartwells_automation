@@ -2,7 +2,7 @@
 Auto-Updater for Chartwells Automation
 ───────────────────────────────────────
 Checks GitHub Releases for a newer version on startup.
-If found, prompts the user and downloads the new .exe.
+If found, prompts the user and downloads the Windows release asset.
 
 Usage in dashboard.py:
     from BE.src.updater import check_for_updates
@@ -16,7 +16,7 @@ Release tagging convention:
 Setup:
     1. Create a GitHub repo (can be private — use a personal access token)
     2. Create a Release with a tag like "v1.0.0"
-    3. Upload the built .exe as a release asset
+    3. Upload the built .zip and .exe as release assets
     4. Set GITHUB_REPO below to "your-username/your-repo"
     5. If private repo, set GITHUB_TOKEN in your .env
 """
@@ -28,6 +28,7 @@ import shutil
 import tempfile
 import threading
 import subprocess
+import zipfile
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -63,7 +64,7 @@ GITHUB_REPO = "Seaw24/chartwells_automation"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("UPDATER_TOKEN", "")
 
 # Current version — bump this each time you build a new release
-CURRENT_VERSION = "1.0.5"
+CURRENT_VERSION = "1.0.1"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -110,8 +111,16 @@ def _fetch_latest_release() -> dict | None:
         return None
 
 
-def _find_exe_asset(assets: list[dict]) -> dict | None:
-    """Find the .exe asset from the release assets list."""
+def _find_update_asset(assets: list[dict]) -> dict | None:
+    """Find the best Windows update asset from the release assets list."""
+    for asset in assets:
+        name = asset.get("name", "").lower()
+        if name == "chartwellsautomation-windows.zip":
+            return asset
+    for asset in assets:
+        name = asset.get("name", "").lower()
+        if name.endswith(".zip") and "windows" in name:
+            return asset
     for asset in assets:
         name = asset.get("name", "")
         if name.lower().endswith(".exe"):
@@ -223,6 +232,70 @@ def _install_and_restart(new_exe_path: Path):
             old_exe.rename(current_exe)
 
 
+def _install_zip_and_restart(zip_path: Path):
+    """
+    Install a one-folder PyInstaller update from a downloaded zip and restart.
+
+    The copy happens from a helper batch file after this process exits, because
+    Windows locks the running executable and several loaded DLLs.
+    """
+    current_exe = _get_current_exe()
+
+    if not getattr(sys, "frozen", False):
+        print("[Updater] Dev mode — skipping install. New zip at:", zip_path)
+        return
+
+    app_dir = current_exe.parent
+    work_dir = Path(tempfile.mkdtemp(prefix="chartwells_update_extract_"))
+    extract_dir = work_dir / "extracted"
+    extract_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            archive.extractall(extract_dir)
+    except (OSError, zipfile.BadZipFile) as exc:
+        print(f"[Updater] Could not extract update zip: {exc}")
+        return
+
+    nested_dir = extract_dir / "ChartwellsAutomation"
+    if (nested_dir / current_exe.name).exists():
+        source_dir = nested_dir
+    elif (extract_dir / current_exe.name).exists():
+        source_dir = extract_dir
+    else:
+        print("[Updater] Update zip did not contain ChartwellsAutomation.exe")
+        return
+
+    script_path = work_dir / "apply_update.bat"
+    script_path.write_text(
+        "\n".join([
+            "@echo off",
+            "timeout /t 2 /nobreak >nul",
+            f'robocopy "{source_dir}" "{app_dir}" /E /R:5 /W:1',
+            "if %ERRORLEVEL% GEQ 8 exit /b %ERRORLEVEL%",
+            f'start "" "{current_exe}"',
+            f'rmdir /s /q "{work_dir}"',
+        ]),
+        encoding="utf-8",
+    )
+
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", str(script_path)],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        sys.exit(0)
+    except OSError as exc:
+        print(f"[Updater] Could not launch update installer: {exc}")
+
+
+def _install_asset_and_restart(asset_path: Path):
+    if asset_path.suffix.lower() == ".zip":
+        _install_zip_and_restart(asset_path)
+    else:
+        _install_and_restart(asset_path)
+
+
 def _cleanup_old_exe():
     """Remove .exe.old from a previous update (call on startup)."""
     if not getattr(sys, "frozen", False):
@@ -261,14 +334,14 @@ def check_for_updates(app_window, current_version: str = CURRENT_VERSION):
             print(f"[Updater] Up to date (v{current_version})")
             return
 
-        exe_asset = _find_exe_asset(release.get("assets", []))
-        if exe_asset is None:
+        update_asset = _find_update_asset(release.get("assets", []))
+        if update_asset is None:
             print(
-                f"[Updater] New version {remote_tag} found but no .exe asset")
+                f"[Updater] New version {remote_tag} found but no Windows update asset")
             return
 
         release_notes = release.get("body", "")[:300]  # Truncate long notes
-        asset_size_mb = exe_asset.get("size", 0) / (1024 * 1024)
+        asset_size_mb = update_asset.get("size", 0) / (1024 * 1024)
 
         # Schedule UI prompt on main thread
         app_window.after(0, lambda: _show_update_prompt(
@@ -276,7 +349,7 @@ def check_for_updates(app_window, current_version: str = CURRENT_VERSION):
             remote_tag,
             release_notes,
             asset_size_mb,
-            exe_asset,
+            update_asset,
         ))
 
     thread = threading.Thread(target=_check, daemon=True)
@@ -345,7 +418,7 @@ def _start_download(app_window, asset, version_tag):
 
     # ── Background download ──────────────────────────────────────
     tmp_dir = Path(tempfile.mkdtemp(prefix="chartwells_update_"))
-    tmp_exe = tmp_dir / asset.get("name", "chartwells.exe")
+    tmp_asset = tmp_dir / asset.get("name", "ChartwellsAutomation-windows.zip")
 
     def _on_progress(downloaded, total):
         if total > 0:
@@ -359,7 +432,7 @@ def _start_download(app_window, asset, version_tag):
 
     def _do_download():
         success = _download_asset(
-            asset, tmp_exe, progress_callback=_on_progress)
+            asset, tmp_asset, progress_callback=_on_progress)
 
         def _finish():
             progress_win.destroy()
@@ -370,7 +443,7 @@ def _start_download(app_window, asset, version_tag):
                     "Download complete! The app will now restart.",
                     parent=app_window,
                 )
-                _install_and_restart(tmp_exe)
+                _install_asset_and_restart(tmp_asset)
             else:
                 from tkinter import messagebox
                 messagebox.showerror(
