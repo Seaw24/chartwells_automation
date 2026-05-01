@@ -30,10 +30,26 @@ try:
     from dotenv import load_dotenv
     from pathlib import Path
 
-    # Search for .env from this file's location up to the project root
+    try:
+        from BE.src.path_helper import get_app_dir
+    except ImportError:
+        try:
+            from ..path_helper import get_app_dir
+        except ImportError:
+            get_app_dir = None
+
+    env_paths = []
+    if get_app_dir:
+        env_paths.append(get_app_dir() / ".env")
+
+    # Search for .env from this file's location up to the project root.
     _this_dir = Path(__file__).resolve().parent
-    for _parent in (_this_dir, _this_dir.parent, _this_dir.parents[1], _this_dir.parents[2]):
-        _env_path = _parent / ".env"
+    env_paths.extend(
+        _parent / ".env"
+        for _parent in (_this_dir, _this_dir.parent, _this_dir.parents[1], _this_dir.parents[2])
+    )
+
+    for _env_path in dict.fromkeys(env_paths):
         if _env_path.exists():
             load_dotenv(_env_path)
             break
