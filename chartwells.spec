@@ -54,7 +54,10 @@ datas = [
     data for data in datas
     if Path(data[0]).exists() or data[0] != 'logo/chartwells.jfif'
 ]
-datas += tcltk_info.data_files
+datas += [
+    (src, str(Path(dest).parent))
+    for dest, src, _typecode in tcltk_info.data_files
+]
 
 excludes = ['tkinter.test', 'test', 'tests', 'pytest']
 
