@@ -64,7 +64,6 @@ class ExcelPrinter:
             self.settings.printer_name = printer_name
         self.printer_name = self.settings.printer_name
         self.tracker = tracker
-        self._windows_dev_mode_original = None
         self._windows_default_printer_original = None
 
     def _log(self, msg, kind="info"):
@@ -228,15 +227,12 @@ class ExcelPrinter:
             self._set_windows_default_printer_for_excel()
             excel = self._open_excel()
             self._set_windows_printer(excel)
-            self._apply_windows_printer_options()
             self._print_reports_windows(excel, reports_dir)
             self._print_cash_sheets_windows(excel, casheet_dir, sheet_names)
             self.check_print_queue()
             self._log("Print complete.", kind="section")
             return True
         finally:
-            # Restore any DEVMODE we mutated and shut Excel down even on errors.
-            self._restore_windows_printer_options()
             self._close_excel(excel)
             self._restore_windows_default_printer()
 
@@ -380,84 +376,6 @@ class ExcelPrinter:
             "Open Excel's Print dialog once, confirm the printer appears there, "
             "then retry with the same printer selected."
         )
-
-    def _apply_windows_printer_options(self):
-        target_printer = self.printer_name or self.get_default_printer()
-        if not target_printer:
-            raise PrinterError(
-                "No default printer is set on Windows. Select a printer in the app "
-                "or set a default printer in Windows Settings."
-            )
-        if self.settings.color_mode == "color" and not self.settings.duplex:
-            return
-
-        try:
-            import win32con
-            import win32print
-        except ImportError as exc:
-            raise PrinterError(
-                "Color/duplex printer options on Windows require pywin32."
-            ) from exc
-
-        try:
-            handle = win32print.OpenPrinter(target_printer)
-            info = win32print.GetPrinter(handle, 2)
-            devmode = info["pDevMode"]
-            original = {
-                "Color": getattr(devmode, "Color", None),
-                "Duplex": getattr(devmode, "Duplex", None),
-            }
-            if self.settings.color_mode == "bw":
-                devmode.Color = win32con.DMCOLOR_MONOCHROME
-            if self.settings.duplex:
-                devmode.Duplex = win32con.DMDUP_VERTICAL
-            info["pDevMode"] = devmode
-            self._log(
-                f"  Note: Temporarily modifying system defaults for '{target_printer}' "
-                f"(color={self.settings.color_mode}, duplex={self.settings.duplex}). "
-                f"Original settings will be restored when printing finishes."
-            )
-            win32print.SetPrinter(handle, 2, info, 0)
-            self._windows_dev_mode_original = (handle, info, original, target_printer)
-        except Exception as exc:
-            try:
-                win32print.ClosePrinter(handle)
-            except Exception:
-                pass
-            self._log(
-                f"  WARNING: Could not apply color/duplex settings to '{target_printer}': {exc}. "
-                "Printing will continue on the selected printer using its current driver defaults. "
-                "Set color/duplex manually in Windows printer properties if needed.",
-                kind="warning")
-            self._windows_dev_mode_original = None
-
-    def _restore_windows_printer_options(self):
-        if not self._windows_dev_mode_original:
-            return
-        handle, info, original, target_printer_name = self._windows_dev_mode_original
-        try:
-            devmode = info["pDevMode"]
-            for key, value in original.items():
-                if value is not None:
-                    setattr(devmode, key, value)
-            info["pDevMode"] = devmode
-            import win32print
-            win32print.SetPrinter(handle, 2, info, 0)
-            self._log(
-                f"  Restored original printer defaults for '{target_printer_name}'."
-            )
-        except Exception as exc:
-            self._log(
-                f"  WARNING: Could not restore printer defaults for '{target_printer_name}': {exc}. "
-                f"You may need to reset color/duplex settings manually in Windows printer properties.",
-                kind="warning")
-        finally:
-            try:
-                import win32print
-                win32print.ClosePrinter(handle)
-            except Exception:
-                pass
-            self._windows_dev_mode_original = None
 
     def _print_reports_windows(self, excel, reports_dir):
         try:
