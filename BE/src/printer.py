@@ -1,19 +1,14 @@
 """
-Cross-platform printer support for reports and cash sheets.
+Windows-only printer support for reports and cash sheets.
 
-Windows uses Excel COM so spreadsheets keep their existing layout.
-macOS uses the system CUPS tools (`lpstat`, `lp`) and returns clear errors
-when a selected printer or print option is not accepted by the OS.
+Uses Excel COM (via pywin32) so spreadsheets keep their existing layout when
+they hit the page. ``print_all`` is the only entry point the engine calls;
+everything else is private machinery to keep that one method readable.
 """
 
 from __future__ import annotations
 
-import glob
 import os
-import platform
-import shutil
-import subprocess
-import tempfile
 from dataclasses import dataclass
 
 
@@ -73,8 +68,6 @@ class ExcelPrinter:
         vocabulary: 'info', 'section', 'detail', 'success', 'warning', 'error'.
         """
         if self.tracker:
-            # Use the tracker's structured emitters when available so the
-            # printer's lines are styled the same way as the autofill lines.
             emit = {
                 "section": getattr(self.tracker, "section", None),
                 "detail":  getattr(self.tracker, "detail", None),
@@ -91,27 +84,17 @@ class ExcelPrinter:
 
     @staticmethod
     def get_available_printers():
-        """Return printer names on this machine."""
-        system = platform.system()
-        if system == "Windows":
-            return ExcelPrinter._get_windows_printers()
-        if system == "Darwin":
-            return ExcelPrinter._get_cups_printers()
-        return []
+        """Return printer names installed on this Windows machine."""
+        return ExcelPrinter._get_windows_printers()
 
     @staticmethod
     def get_default_printer():
-        """Return system default printer name, or None."""
-        system = platform.system()
-        if system == "Windows":
-            try:
-                import win32print
-                return win32print.GetDefaultPrinter()
-            except Exception:
-                return None
-        if system == "Darwin":
-            return ExcelPrinter._get_cups_default_printer()
-        return None
+        """Return the Windows default printer name, or None if none is set."""
+        try:
+            import win32print
+            return win32print.GetDefaultPrinter()
+        except Exception:
+            return None
 
     @staticmethod
     def _get_windows_printers():
@@ -124,66 +107,33 @@ class ExcelPrinter:
         except Exception:
             return []
 
-    @staticmethod
-    def _run_cups(args):
-        try:
-            return subprocess.run(
-                args, check=False, text=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except FileNotFoundError as exc:
-            raise PrinterError(
-                "macOS printing tools were not found. Install or enable CUPS, "
-                "then try printing again."
-            ) from exc
-
-    @staticmethod
-    def _get_cups_printers():
-        try:
-            result = ExcelPrinter._run_cups(["lpstat", "-a"])
-        except PrinterError:
-            return []
-        if result.returncode != 0:
-            return []
-        printers = []
-        for line in result.stdout.splitlines():
-            if line.strip():
-                printers.append(line.split()[0])
-        return printers
-
-    @staticmethod
-    def _get_cups_default_printer():
-        try:
-            result = ExcelPrinter._run_cups(["lpstat", "-d"])
-        except PrinterError:
-            return None
-        if result.returncode != 0:
-            return None
-        marker = "system default destination:"
-        text = result.stdout.strip()
-        if marker in text:
-            return text.split(marker, 1)[1].strip()
-        return None
-
     # === MAIN BATCH PRINT ===
 
-    def print_all(self, reports_dir, casheet_dir, sheet_names):
+    def print_all(self, reports_dir, casheet_dir,
+                  sheet_names_by_file, printable_reports=None):
         """
         Print reports first, then cash sheets.
+
+        Args:
+            reports_dir:         Folder of source reports (Infor / Tavlo / Grubhub).
+            casheet_dir:         Folder of cash-sheet workbooks.
+            sheet_names_by_file: ``{casheet_path: {weekday, ...}}`` — only the
+                                 listed workbooks are printed, and only the
+                                 listed weekday tabs within each.
+            printable_reports:   Set of report filenames (basenames) that had
+                                 non-zero data and should be printed. Reports
+                                 whose names aren't in this set are skipped.
+                                 Pass ``None`` to print every report file in
+                                 the folder (legacy behavior).
 
         Returns True when printing ran to completion, False when it was stopped
         before or during printing. A selected printer is never replaced with a
         different printer automatically.
         """
         try:
-            system = platform.system()
-            if system == "Windows":
-                return self._print_all_windows(reports_dir, casheet_dir, sheet_names)
-            if system == "Darwin":
-                return self._print_all_macos(reports_dir, casheet_dir, sheet_names)
-            raise PrinterError(
-                f"Printing is not configured for {system or 'this operating system'}. "
-                "Use Windows or macOS, or add an OS-specific printer backend."
-            )
+            return self._print_all_windows(
+                reports_dir, casheet_dir,
+                sheet_names_by_file, printable_reports)
         except PrinterError as exc:
             # We deliberately do NOT silently fall back to another printer
             # — surface a clear, actionable message to the user instead.
@@ -221,14 +171,16 @@ class ExcelPrinter:
         except Exception:
             pass
 
-    def _print_all_windows(self, reports_dir, casheet_dir, sheet_names):
+    def _print_all_windows(self, reports_dir, casheet_dir,
+                           sheet_names_by_file, printable_reports):
         excel = None
         try:
             self._set_windows_default_printer_for_excel()
             excel = self._open_excel()
             self._set_windows_printer(excel)
-            self._print_reports_windows(excel, reports_dir)
-            self._print_cash_sheets_windows(excel, casheet_dir, sheet_names)
+            self._print_reports_windows(excel, reports_dir, printable_reports)
+            self._print_cash_sheets_windows(
+                excel, casheet_dir, sheet_names_by_file)
             self.check_print_queue()
             self._log("Print complete.", kind="section")
             return True
@@ -339,7 +291,8 @@ class ExcelPrinter:
             win32print.ClosePrinter(handle)
             raw_port = str(info.get("pPortName", "")).strip()
             if raw_port:
-                candidates.append(f"{installed_name} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
+                candidates.append(
+                    f"{installed_name} on {raw_port if raw_port.endswith(':') else raw_port + ':'}")
         except Exception:
             pass
 
@@ -377,15 +330,26 @@ class ExcelPrinter:
             "then retry with the same printer selected."
         )
 
-    def _print_reports_windows(self, excel, reports_dir):
+    def _print_reports_windows(self, excel, reports_dir, printable_reports):
         try:
             all_files = os.listdir(reports_dir)
         except (FileNotFoundError, PermissionError) as exc:
             raise PrinterError(f"Cannot access reports folder: {exc}") from exc
 
-        infor = [f for f in all_files if f.lower().endswith(".csv") and f.startswith("Operations Report")]
+        # Filter to recognized report files first.
+        infor = [f for f in all_files
+                 if f.lower().endswith(".csv") and f.startswith("Operations Report")]
         tavlo = [f for f in all_files if f.lower().endswith(".xls")]
-        grubhub = [f for f in all_files if f.lower().endswith(".csv") and f.startswith("TransactionDetailbyVenue")]
+        grubhub = [f for f in all_files
+                   if f.lower().endswith(".csv") and f.startswith("TransactionDetailbyVenue")]
+
+        # Then narrow to "had non-zero data" reports if the engine gave us a
+        # filter set. ``None`` keeps the legacy behavior of printing every file
+        # — useful if this method is ever called outside the autofill engine.
+        if printable_reports is not None:
+            infor = [f for f in infor if f in printable_reports]
+            tavlo = [f for f in tavlo if f in printable_reports]
+            grubhub = [f for f in grubhub if f in printable_reports]
 
         total_reports = len(infor) + len(tavlo) + len(grubhub)
         if total_reports == 0:
@@ -413,17 +377,24 @@ class ExcelPrinter:
         self._log(
             f"Reports: {printed} printed, {failed} failed", kind="detail")
 
-    def _print_cash_sheets_windows(self, excel, casheet_dir, sheet_names):
-        xlsx_files = sorted(glob.glob(os.path.join(casheet_dir, "*.xlsx")))
-        xlsx_files = [f for f in xlsx_files if not os.path.basename(f).startswith("~$")]
-        if not xlsx_files or not sheet_names:
+    def _print_cash_sheets_windows(self, excel, casheet_dir, sheet_names_by_file):
+        if not sheet_names_by_file:
+            return
+
+        # Only consider workbooks that actually had at least one day filled.
+        # Defensively skip Excel lock files (~$...) and sort for stable logs.
+        targets = sorted(
+            (path, days) for path, days in sheet_names_by_file.items()
+            if days and not os.path.basename(path).startswith("~$")
+        )
+        if not targets:
             return
 
         self._log(
-            f"Printing {len(xlsx_files)} cash sheet(s)", kind="section")
+            f"Printing {len(targets)} cash sheet(s)", kind="section")
 
         cs_printed, cs_failed = 0, 0
-        for xlsx_path in xlsx_files:
+        for xlsx_path, sheet_names in targets:
             filename = os.path.basename(xlsx_path)
             wb = None
             try:
@@ -558,173 +529,8 @@ class ExcelPrinter:
                 except Exception:
                     pass
 
-    # === macOS / CUPS ===
-
-    def _print_all_macos(self, reports_dir, casheet_dir, sheet_names):
-        self._validate_cups_printer()
-        files = self._collect_macos_files(reports_dir, casheet_dir)
-        if not files:
-            self._log("Nothing to print.", kind="detail")
-            return True
-
-        self._log(
-            f"Sending {len(files)} file(s) to printer", kind="section")
-        with tempfile.TemporaryDirectory(prefix="chartwells_print_") as tmp_dir:
-            for file_path in files:
-                filename = os.path.basename(file_path)
-                extension = os.path.splitext(filename)[1].lower()
-                if extension in {".xlsx", ".xls", ".csv"}:
-                    self._log(f"   Converting: {filename}", kind="detail")
-                    pdf_path = self._convert_to_pdf_macos(file_path, tmp_dir)
-                    self._lp_print(pdf_path, original_name=filename)
-                elif extension == ".pdf":
-                    self._lp_print(file_path)
-                else:
-                    raise PrinterError(
-                        f"macOS printing does not support '{extension or 'unknown'}' files: "
-                        f"{filename}. Supported file types are PDF, XLSX, XLS, and CSV."
-                    )
-        self.check_print_queue()
-        self._log("Print complete.", kind="section")
-        return True
-
-    def _convert_to_pdf_macos(self, file_path, tmp_dir):
-        soffice = None
-        for candidate in (
-            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-            "/usr/local/bin/soffice",
-            "/opt/homebrew/bin/soffice",
-        ):
-            if os.path.exists(candidate):
-                soffice = candidate
-                break
-        if not soffice:
-            soffice = shutil.which("soffice")
-        if not soffice:
-            raise PrinterError(
-                "LibreOffice is required to print Excel/CSV files on macOS. "
-                "Install it from https://www.libreoffice.org/download, then try again."
-            )
-
-        cmd = [
-            soffice,
-            "--headless",
-            "--convert-to", "pdf",
-            "--outdir", tmp_dir,
-            file_path,
-        ]
-        try:
-            result = subprocess.run(
-                cmd, check=False, text=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                timeout=60)
-        except subprocess.TimeoutExpired as exc:
-            raise PrinterError(
-                f"LibreOffice timed out while converting '{os.path.basename(file_path)}' to PDF."
-            ) from exc
-        except OSError as exc:
-            raise PrinterError(
-                f"Could not run LibreOffice to convert '{os.path.basename(file_path)}' to PDF: {exc}"
-            ) from exc
-
-        if result.returncode != 0:
-            stdout = result.stdout.strip() or "(empty)"
-            stderr = result.stderr.strip() or "(empty)"
-            raise PrinterError(
-                f"LibreOffice could not convert '{os.path.basename(file_path)}' to PDF. "
-                f"stdout: {stdout}\nstderr: {stderr}"
-            )
-
-        pdf_path = os.path.join(
-            tmp_dir,
-            f"{os.path.splitext(os.path.basename(file_path))[0]}.pdf")
-        if not os.path.exists(pdf_path):
-            raise PrinterError(
-                f"LibreOffice reported success but did not create '{os.path.basename(pdf_path)}'."
-            )
-        return pdf_path
-
-    def _validate_cups_printer(self):
-        available = self._get_cups_printers()
-        default = self._get_cups_default_printer()
-        if self.printer_name:
-            requested = self.printer_name.strip()
-            if requested not in available:
-                raise PrinterError(
-                    f"Printer '{requested}' is not available on macOS. "
-                    f"Available printers: {', '.join(available) if available else 'none found'}. "
-                    "Open System Settings > Printers & Scanners, add/fix the printer, "
-                    "then press the refresh button in this app."
-                )
-        elif not default:
-            raise PrinterError(
-                "No default printer is set on macOS. Select a printer in the app "
-                "or set one in System Settings > Printers & Scanners."
-            )
-
-    def _collect_macos_files(self, reports_dir, casheet_dir):
-        try:
-            all_reports = os.listdir(reports_dir)
-        except (FileNotFoundError, PermissionError) as exc:
-            raise PrinterError(f"Cannot access reports folder: {exc}") from exc
-
-        report_files = []
-        for name in all_reports:
-            lower = name.lower()
-            is_report = (
-                lower.endswith(".xls")
-                or (lower.endswith(".csv") and name.startswith("Operations Report"))
-                or (lower.endswith(".csv") and name.startswith("TransactionDetailbyVenue"))
-            )
-            if is_report:
-                report_files.append(os.path.join(reports_dir, name))
-
-        xlsx_files = sorted(glob.glob(os.path.join(casheet_dir, "*.xlsx")))
-        xlsx_files = [f for f in xlsx_files if not os.path.basename(f).startswith("~$")]
-        return report_files + xlsx_files
-
-    def _lp_options(self):
-        options = [
-            "-n", str(self.settings.copies),
-            "-o", f"media={self.settings.paper_size}",
-            "-o", "landscape" if self.settings.orientation == "landscape" else "portrait",
-            "-o", "Collate=True" if self.settings.collate else "Collate=False",
-            "-o", "sides=two-sided-long-edge" if self.settings.duplex else "sides=one-sided",
-        ]
-        if self.settings.color_mode == "bw":
-            options.extend(["-o", "print-color-mode=monochrome", "-o", "ColorModel=Gray"])
-        else:
-            options.extend(["-o", "print-color-mode=color"])
-        return options
-
-    def _lp_print(self, file_path, original_name=None):
-        if not os.path.exists(file_path):
-            raise PrinterError(f"File no longer exists: {file_path}")
-        display_name = original_name or os.path.basename(file_path)
-        cmd = ["lp"]
-        if self.printer_name:
-            cmd.extend(["-d", self.printer_name])
-        cmd.extend(self._lp_options())
-        cmd.append(file_path)
-
-        result = self._run_cups(cmd)
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout).strip()
-            raise PrinterError(
-                f"macOS rejected print job for '{display_name}': {detail}. "
-                "Confirm the printer supports this file type and the selected options."
-            )
-        self._log(f"   ✓ Sent: {display_name}", kind="detail")
-
     def check_print_queue(self):
         """Emit one short status line about the selected printer's queue."""
-        system = platform.system()
-        if system == "Windows":
-            self._check_queue_windows()
-        elif system == "Darwin":
-            self._check_queue_macos()
-
-    def _check_queue_windows(self):
         try:
             import win32print
             name = self.printer_name or win32print.GetDefaultPrinter()
@@ -740,19 +546,3 @@ class ExcelPrinter:
                 f"Queue: {pending} job(s) pending on '{name}'", kind="detail")
         else:
             self._log(f"Queue empty — all jobs sent to '{name}'", kind="detail")
-
-    def _check_queue_macos(self):
-        name = self.printer_name or self._get_cups_default_printer()
-        if not name:
-            self._log("Could not check queue: no printer selected", kind="detail")
-            return
-        result = self._run_cups(["lpstat", "-o", name])
-        if result.returncode == 0 and result.stdout.strip():
-            count = len(result.stdout.splitlines())
-            self._log(
-                f"Queue: {count} job(s) pending on '{name}'", kind="detail")
-        elif result.returncode in (0, 1):
-            self._log(f"Queue empty — all jobs sent to '{name}'", kind="detail")
-        else:
-            detail = (result.stderr or result.stdout).strip()
-            self._log(f"Could not check queue: {detail}", kind="detail")
