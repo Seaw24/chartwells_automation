@@ -151,8 +151,10 @@ class CashSheetAutofillEngine:
         self.auto_print = auto_print
         self.printer_name = printer_name
         self.print_settings = print_settings
-        self.filled_days = set()
+        self.filled_days = {}  # Track which weekdays we filled for optional auto-printing at the end
         self.db_manager = TendersDBManager()
+        self.printable_reports = set()   # ← ADD: report basenames with non-zero data
+
 
     # ═══════════════════════════════════════════════════════════════
     #  MAIN EXECUTE
@@ -232,15 +234,16 @@ class CashSheetAutofillEngine:
         self.tracker.print_summary()
 
         # Print reports then cash sheets if enabled
-        if self.auto_print and self.filled_days:
+        if self.auto_print and self.filled_days_by_file:
             from ..printer import ExcelPrinter
             printer = ExcelPrinter(
-                self.printer_name,
-                self.tracker,
-                settings=self.print_settings,
-            )
-            printer.print_all(self.reports_dir,
-                              self.casheet_dir, list(self.filled_days))
+            self.printer_name,
+            self.tracker,
+            settings=self.print_settings,
+        )
+        printer.print_all(self.reports_dir,
+                        self.casheet_dir, self.filled_days_by_file, self.printable_reports,)
+
 
         return self.tracker
 
@@ -264,6 +267,19 @@ class CashSheetAutofillEngine:
                 f"   Could not parse date '{date_str}' "
                 "(expected MM/DD/YYYY).")
             return None
+        
+    @staticmethod
+    def _report_has_data(data):
+        """True if parsed report data has any non-zero sales / count / tenders."""
+        if not data:
+            return False
+        if data.get("total_sales", 0):
+            return True
+        if data.get("count", 0):
+            return True
+        if any(data.get("tenders", {}).values()):
+            return True
+        return False
 
     def find_casheet_file(self, casheet_pattern):
         """Find a cash-sheet file whose name contains *casheet_pattern*."""
@@ -315,8 +331,9 @@ class CashSheetAutofillEngine:
                 label, casheet_path, "Tender over/short != 0")
             return True
 
+        # After
         self.tracker.add_success(label, casheet_path)
-        self.filled_days.add(week_day)
+        self.filled_days_by_file.setdefault(casheet_path, set()).add(week_day)
 
         # Persist a record in the analytics DB. Failure here is logged but
         # never blocks the autofill — the cash sheet is already saved.
@@ -355,6 +372,9 @@ class CashSheetAutofillEngine:
         data = report_parser.get_data_dict()
         location = strip_accents(data["location"])
         self.tracker.detail(f"{data['location']}  ·  {data['date']}")
+
+        if self._report_has_data(data):
+            self.printable_reports.add(report_filename)
 
         # 2. Look up cash-sheet mapping
         if location not in REPORTS_CASHSHEET_MAP:
