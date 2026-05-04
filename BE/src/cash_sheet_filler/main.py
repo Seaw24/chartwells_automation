@@ -151,7 +151,7 @@ class CashSheetAutofillEngine:
         self.auto_print = auto_print
         self.printer_name = printer_name
         self.print_settings = print_settings
-        self.filled_days_by_files= {}  # Track which weekdays we filled for optional auto-printing at the end
+        self.filled_days_by_file= {}  # Track which weekdays we filled for optional auto-printing at the end
         self.db_manager = TendersDBManager()
         self.printable_reports = set()   # ← ADD: report basenames with non-zero data
 
