@@ -331,9 +331,9 @@ class CashSheetAutofillEngine:
                 label, casheet_path, "Tender over/short != 0")
             return True
 
-        # After
         self.tracker.add_success(label, casheet_path)
-        self.filled_days_by_file.setdefault(casheet_path, set()).add(week_day)
+        if self._report_has_data(data_dict):
+            self.filled_days_by_file.setdefault(casheet_path, set()).add(week_day)
 
         # Persist a record in the analytics DB. Failure here is logged but
         # never blocks the autofill — the cash sheet is already saved.
