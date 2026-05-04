@@ -13,10 +13,12 @@ Design choices
   and all callers work without changes.
 """
 
+from email.policy import default
 import os
 import re
 from decimal import Decimal
 from datetime import datetime
+import json
 
 try:
     import psycopg2
@@ -349,6 +351,50 @@ class TendersDBManager:
         return ok
 
     # ── read operations ───────────────────────────────────────────
+    def get_setting(self, key: str, default=None):
+        """Fetch a value from app_settings. JSONB auto-deserializes via psycopg2."""
+        if self.conn is None:
+            return default
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT value FROM app_settings WHERE key = %s",
+                    (key,)
+                )
+                row = cur.fetchone()
+            if not row:
+                return default
+            return row["value"]
+        except _DB_ERROR as e:
+            print(f"[DB] Error fetching setting '{key}': {e}")
+            self.conn.rollback()
+            return default
+
+    def set_setting(self, key: str, value, updated_by: str | None = None) -> bool:
+        """Upsert a value into app_settings. Value is JSON-serialized."""
+        if self.conn is None:
+            print("[DB] No connection — skipping setting write")
+            return False
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_settings (key, value, updated_by)
+                    VALUES (%s, %s::jsonb, %s)
+                    ON CONFLICT (key) DO UPDATE SET
+                        value      = EXCLUDED.value,
+                        updated_by = EXCLUDED.updated_by,
+                        updated_at = NOW()
+                    """,
+                    (key, json.dumps(value), updated_by)
+                )
+                self.conn.commit()
+            return True
+        except _DB_ERROR as e:
+            print(f"[DB] Error saving setting '{key}': {e}")
+            self.conn.rollback()
+            return False
+    
     def get_records(
         self,
         location: str | None = None,
