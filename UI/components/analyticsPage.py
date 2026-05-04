@@ -20,6 +20,7 @@ import sys
 import threading
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from weakref import ref
 
 import customtkinter as ctk
 import matplotlib
@@ -353,6 +354,10 @@ class AnalyticsPage(ctk.CTkFrame):
         self._selected_locations: list[str] = []
         self._active_preset: str = "all"
 
+        # flex total 
+        self._flex_total: float = 0.0
+
+
         # cached query results
         self._summary: dict = {}
         self._daily: list[dict] = []
@@ -371,6 +376,7 @@ class AnalyticsPage(ctk.CTkFrame):
         self._build_header()       # row 0
         self._build_date_bar()     # row 1
         self._build_kpi_row()      # row 2
+        self._load_flex_total()
         self._build_chart_area()   # rows 3 + 4
 
         self.after(75, self._drain_query_results)
@@ -540,53 +546,94 @@ class AnalyticsPage(ctk.CTkFrame):
         self._kpi_container = ctk.CTkFrame(self, fg_color="transparent")
         self._kpi_container.grid(
             row=2, column=0, sticky="ew", padx=16, pady=(6, 2))
-        for i in range(4):
+        for i in range(3):
             self._kpi_container.grid_columnconfigure(i, weight=1)
 
         self._kpi_refs: list[dict] = []
-        meta = [
-            ("💰", "Total Revenue", "$0", ACCENT, BLUE_BG),
-            ("📊", "Daily Average", "$0", GREEN, GREEN_BG),
-            ("🍱", "Meals Served", "0", AMBER, AMBER_BG),
-            ("🏆", "Top Location", "—", SLATE, "#F1F5F9"),
-        ]
-        for i, (icon, label, default, accent, bg) in enumerate(meta):
-            refs = self._make_kpi_card(
-                self._kpi_container, i, icon, label, default, accent, bg)
-            self._kpi_refs.append(refs)
 
-    def _make_kpi_card(self, parent, col, icon, label, value, accent, icon_bg):
+        # Row 0: Revenue + Flex tracking
+        row0 = [
+            ("💰", "Total Revenue",  "$0", ACCENT, BLUE_BG,   "label"),
+            ("🎯", "Flex Total",     "$0", SLATE,  "#F1F5F9", "input"),
+            ("⚖️", "Flex Balance",   "$0", GREEN,  GREEN_BG,  "computed"),
+        ]
+        # Row 1: Operations
+        row1 = [
+            ("📊", "Daily Average",  "$0", GREEN, GREEN_BG,   "label"),
+            ("🍱", "Meals Served",   "0",  AMBER, AMBER_BG,   "label"),
+            ("🏆", "Top Location",   "—",  SLATE, "#F1F5F9",  "label"),
+        ]
+
+        for r, row_meta in enumerate([row0, row1]):
+            for c, (icon, label, default, accent, bg, kind) in enumerate(row_meta):
+                refs = self._make_kpi_card(
+                    self._kpi_container, r, c,  
+                    icon, label, default, accent, bg, kind)
+                self._kpi_refs.append(refs)
+
+        # Bind focus-out on the Flex Total entry (index 1)
+        flex_entry = self._kpi_refs[1]["value"]
+        self.winfo_toplevel().bind("<Button-1>", self._maybe_release_flex, add="+")
+
+        # Static sub-message for the input card (managed only by save handler after this)
+        self._kpi_refs[1]["change"].configure(
+            text="Editable · saves on click-away", text_color=TEXT_MUTED)
+
+    def _make_kpi_card(self, parent, row, col, icon, label, value,
+                   accent, icon_bg, kind="label"):
         card = ctk.CTkFrame(parent, fg_color=CARD_BG, corner_radius=12,
                             border_width=1, border_color=BORDER)
-        card.grid(row=0, column=col, sticky="nsew", padx=5, pady=5)
+        card.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=16, pady=14)
 
         top = ctk.CTkFrame(inner, fg_color="transparent")
         top.pack(fill="x")
         badge = ctk.CTkFrame(top, width=32, height=32,
-                             corner_radius=8, fg_color=icon_bg)
+                            corner_radius=8, fg_color=icon_bg)
         badge.pack(side="left")
         badge.pack_propagate(False)
         ctk.CTkLabel(badge, text=icon, font=ctk.CTkFont(size=14)).place(
             relx=0.5, rely=0.5, anchor="center")
         ctk.CTkLabel(top, text=label,
-                     font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_SEC
-                     ).pack(side="left", padx=(8, 0))
+                    font=ctk.CTkFont(family=FONT, size=11),
+                    text_color=TEXT_SEC).pack(side="left", padx=(8, 0))
 
-        val_lbl = ctk.CTkLabel(inner, text=value,
-                               font=ctk.CTkFont(
-                                   family=FONT, size=22, weight="bold"),
-                               text_color=accent)
-        val_lbl.pack(anchor="w", pady=(6, 0))
+        if kind == "input":
+            # $ prefix as a locked label + editable number entry, side-by-side
+            val_frame = ctk.CTkFrame(inner, fg_color="transparent")
+            val_frame.pack(anchor="w", pady=(6, 0), fill="x")
 
-        # Change indicator (▲ 12.3% or ▼ 5.1%)
+            ctk.CTkLabel(
+                val_frame, text="$",
+                font=ctk.CTkFont(family=FONT, size=22, weight="bold"),
+                text_color=accent
+            ).pack(side="left", padx=(0, 2))
+
+            val_widget = ctk.CTkEntry(
+                val_frame,
+                font=ctk.CTkFont(family=FONT, size=22, weight="bold"),
+                text_color=accent,
+                fg_color="transparent",
+                border_width=0,
+                justify="left",
+            )
+            val_widget.insert(0, str(value).replace("$", ""))
+            val_widget.pack(side="left", fill="x", expand=True)
+        else:
+            val_widget = ctk.CTkLabel(
+                inner, text=value,
+                font=ctk.CTkFont(family=FONT, size=22, weight="bold"),
+                text_color=accent)
+            val_widget.pack(anchor="w", pady=(6, 0))
+
         change_lbl = ctk.CTkLabel(inner, text="",
-                                  font=ctk.CTkFont(family=FONT, size=11),
-                                  text_color=TEXT_MUTED)
+                                font=ctk.CTkFont(family=FONT, size=11),
+                                text_color=TEXT_MUTED)
         change_lbl.pack(anchor="w")
 
-        return {"value": val_lbl, "change": change_lbl}
+        return {"value": val_widget, "change": change_lbl,
+                "kind": kind, "default_color": accent}
 
     def _update_kpis(self):
         s = self._summary
@@ -595,47 +642,126 @@ class AnalyticsPage(ctk.CTkFrame):
         total = float(s.get("total_sales", 0))
         meals = int(s.get("meal_count", 0))
 
-        # Calculate true daily average (unique dates in the period)
         n_days = len(self._daily) if self._daily else 1
         daily_avg = total / n_days if n_days else 0
 
-        # Previous period values
         prev_total = float(ps.get("total_sales", 0))
         prev_meals = int(ps.get("meal_count", 0))
         prev_days = len(self._prev_daily) if self._prev_daily else 1
         prev_daily_avg = prev_total / prev_days if prev_days else 0
 
-        # Top location
-        top_loc = "—"
-        top_loc_amt = ""
+        # Flex tracking
+        flex_used = float(s.get("flex", 0))
+        flex_total = float(self._flex_total)
+        flex_balance = flex_total - flex_used
+
+        top_loc, top_loc_amt = "—", ""
         if self._by_location:
             top = self._by_location[0]
             top_loc = top["location"]
-            top_loc_amt = f"${float(top['total_sales']):,.0f}"
+            top_loc_amt = f"${float(top['total_sales']):,.2f}"
 
-        # Update KPI values
-        kpi_data = [
-            (f"${total:,.0f}", _pct_change(total, prev_total)),
-            (f"${daily_avg:,.0f}", _pct_change(daily_avg, prev_daily_avg)),
-            (f"{meals:,}", _pct_change(meals, prev_meals)),
-            (top_loc, None),
-        ]
+        def _pp_change(ref, val_text, val, prev):
+            ref["value"].configure(text=val_text)
+            change = _pct_change(val, prev)
+            if change is None:
+                ref["change"].configure(text="", text_color=TEXT_MUTED)
+                return
+            arrow = "▲" if change >= 0 else "▼"
+            color = GREEN if change >= 0 else RED
+            ref["change"].configure(
+                text=f"{arrow} {abs(change):.1f}% vs prior period",
+                text_color=color)
+        # 0: Total Revenue
+        _pp_change(self._kpi_refs[0], f"${total:,.2f}", total, prev_total)
 
-        for ref, (val, change) in zip(self._kpi_refs, kpi_data):
-            ref["value"].configure(text=val)
-            if change is not None:
-                arrow = "▲" if change >= 0 else "▼"
-                color = GREEN if change >= 0 else RED
-                ref["change"].configure(
-                    text=f"{arrow} {abs(change):.1f}% vs prior period",
-                    text_color=color)
-            elif val == top_loc and top_loc_amt:
-                ref["change"].configure(text=top_loc_amt, text_color=TEXT_SEC)
-            else:
-                ref["change"].configure(text="")
+        # 1: Flex Total — DO NOT TOUCH (user-controlled input)
+
+        # 2: Flex Balance
+        bal_ref = self._kpi_refs[2]
+        if flex_balance >= 0:
+            bal_ref["value"].configure(text=f"${flex_balance:,.2f}", text_color=GREEN)
+            bal_ref["change"].configure(
+                text=f"${flex_used:,.2f} used of ${flex_total:,.2f}",
+                text_color=TEXT_SEC)
+        else:
+            bal_ref["value"].configure(
+                text=f"-${abs(flex_balance):,.2f}", text_color=RED)
+            bal_ref["change"].configure(
+                text=f"Over budget by ${abs(flex_balance):,.2f}",
+                text_color=RED)
+
+        # 3: Daily Average
+        _pp_change(self._kpi_refs[3], f"${daily_avg:,.2f}", daily_avg, prev_daily_avg)
+
+        # 4: Meals Served
+        _pp_change(self._kpi_refs[4], f"{meals:,}", meals, prev_meals)
+
+        # 5: Top Location
+        loc_ref = self._kpi_refs[5]
+        loc_ref["value"].configure(text=top_loc)
+        loc_ref["change"].configure(
+            text=top_loc_amt, text_color=TEXT_SEC) if top_loc_amt else \
+            loc_ref["change"].configure(text="")
 
         self._rec_badge.configure(
             text=f"{rc} records  •  {n_days} days" if rc else "")
+    def _load_flex_total(self):
+        """Pull flex_total from app_settings into widget + state."""
+        from BE.src.db.tendersdb_manager import TendersDBManager  # adjust import to match your style
+        db = TendersDBManager()
+        raw = db.get_setting("flex_total", default=0)
+        try:
+            self._flex_total = float(raw)
+        except (TypeError, ValueError):
+            self._flex_total = 0.0
+
+        entry = self._kpi_refs[1]["value"]
+        entry.delete(0, "end")
+        entry.insert(0, f"{self._flex_total:,.2f}")
+
+    def _on_flex_total_focus_out(self, event=None):
+        entry = self._kpi_refs[1]["value"]
+        sub_lbl = self._kpi_refs[1]["change"]
+        raw = entry.get().strip().replace(",", "")
+
+        def _show_error(message):
+            entry.delete(0, "end")
+            entry.insert(0, f"{self._flex_total:,.2f}")
+            sub_lbl.configure(text=message, text_color=RED)
+            entry.configure(border_width=2, border_color=RED)
+            self.after(2500, lambda: entry.configure(border_width=0))
+            self.after(2500, lambda: sub_lbl.configure(
+                text="Editable · saves on click-away", text_color=TEXT_MUTED))
+
+        try:
+            new_val = float(raw) if raw else 0.0
+        except ValueError:
+            shown = raw[:20] + ("…" if len(raw) > 20 else "")
+            _show_error(f"✗ '{shown}' isn't a valid number — reverted")
+            return
+
+        if new_val < 0:
+            _show_error("✗ Flex total must be ≥ 0 — reverted")
+            return
+
+        if abs(new_val - self._flex_total) < 0.005:
+            entry.delete(0, "end")
+            entry.insert(0, f"{new_val:,.2f}")
+            return
+
+        from BE.src.db.tendersdb_manager import TendersDBManager
+        db = TendersDBManager()
+        if db.set_setting("flex_total", new_val):
+            self._flex_total = new_val
+            entry.delete(0, "end")
+            entry.insert(0, f"{new_val:,.2f}")
+            sub_lbl.configure(text="✓ Saved", text_color=GREEN)
+            self._update_kpis()
+            self.after(2000, lambda: sub_lbl.configure(
+                text="Editable · saves on click-away", text_color=TEXT_MUTED))
+        else:
+            _show_error("✗ Save failed — check connection")     
 
     # ══════════════════════════════════════════════════════════════
     #  CHART AREA
@@ -833,7 +959,7 @@ class AnalyticsPage(ctk.CTkFrame):
         if dollar_y:
             ax.yaxis.set_major_formatter(
                 mticker.FuncFormatter(
-                    lambda x, _: f"${x:,.0f}" if x >= 1 else f"${x:,.2f}"))
+                    lambda x, _: f"${x:,.2f}" if x >= 1 else f"${x:,.2f}"))
 
     # ══════════════════════════════════════════════════════════════
     #  TAB 1 — OVERVIEW: daily revenue bars + category breakdown
@@ -871,14 +997,14 @@ class AnalyticsPage(ctk.CTkFrame):
         ax.axhline(y=avg_val, color=AMBER, linewidth=1.5, linestyle="--",
                    alpha=0.7, zorder=4)
         ax.text(len(x_pos) - 0.5, avg_val + max(sales) * 0.02,
-                f"Avg ${avg_val:,.0f}", fontsize=9, color=AMBER,
+                f"Avg ${avg_val:,.2f}", fontsize=9, color=AMBER,
                 fontweight="bold", ha="right")
 
         # Value labels on bars (only if <= 14 bars)
         if len(sales) <= 14:
             max_sale = max(sales) if sales else 1
             for xi, val in zip(x_pos, sales):
-                ax.text(xi, val + max_sale * 0.02, f"${val:,.0f}",
+                ax.text(xi, val + max_sale * 0.02, f"${val:,.2f}",
                         ha="center", va="bottom", fontsize=8,
                         color=TEXT_SEC, fontweight="bold")
 
@@ -946,7 +1072,7 @@ class AnalyticsPage(ctk.CTkFrame):
 
             # Value
             ctk.CTkLabel(
-                row, text=f"${val:,.0f}  ({pct:.1f}%)",
+                row, text=f"${val:,.2f}  ({pct:.1f}%)",
                 font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
                 text_color=TEXT_SEC, width=140, anchor="e"
             ).grid(row=0, column=2, sticky="e")
@@ -994,7 +1120,7 @@ class AnalyticsPage(ctk.CTkFrame):
             label_x = bar.get_width() + max_sale * 0.015
             y_center = bar.get_y() + bar.get_height() / 2
             ax.text(label_x, y_center,
-                    f"${val:,.0f}   ({mc:,} meals)",
+                    f"${val:,.2f}   ({mc:,} meals)",
                     ha="left", va="center", fontsize=9,
                     color=TEXT_SEC, fontweight="bold")
 
@@ -1003,7 +1129,7 @@ class AnalyticsPage(ctk.CTkFrame):
         ax.invert_yaxis()
         ax.tick_params(axis="y", labelsize=10, labelcolor=TEXT_PRIMARY)
         ax.xaxis.set_major_formatter(
-            mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+            mticker.FuncFormatter(lambda x, _: f"${x:,.2f}"))
         ax.grid(axis="x", color=BORDER, linewidth=0.5, alpha=0.5)
         if max_sale > 0:
             ax.set_xlim(right=max_sale * 1.30)
@@ -1046,7 +1172,7 @@ class AnalyticsPage(ctk.CTkFrame):
                 t.set_color("white")
                 t.set_fontweight("bold")
 
-            ax.text(0, 0.04, f"${total:,.0f}", ha="center", va="center",
+            ax.text(0, 0.04, f"${total:,.2f}", ha="center", va="center",
                     fontsize=18, fontweight="bold", color=TEXT_PRIMARY)
             ax.text(0, -0.12, "Total Revenue", ha="center", va="center",
                     fontsize=9, color=TEXT_SEC)
@@ -1055,7 +1181,7 @@ class AnalyticsPage(ctk.CTkFrame):
             legend_lines = []
             for lbl, sz in zip(labels, sizes):
                 pct = sz / total * 100
-                legend_lines.append(f"{lbl}  —  ${sz:,.0f}  ({pct:.1f}%)")
+                legend_lines.append(f"{lbl}  —  ${sz:,.2f}  ({pct:.1f}%)")
 
             handles = [ax_leg.barh(0, 0, color=c)[0] for c in clrs]
             ax_leg.legend(handles, legend_lines, loc="center left",
@@ -1095,7 +1221,7 @@ class AnalyticsPage(ctk.CTkFrame):
                 card, fg_color=cat_info["color"], corner_radius=6, height=28)
             hdr.pack(fill="x", padx=16, pady=(8, 2))
             hdr.pack_propagate(False)
-            ctk.CTkLabel(hdr, text=f"  {cat_info['icon']}  {cat_name}  —  ${cat_total:,.0f}",
+            ctk.CTkLabel(hdr, text=f"  {cat_info['icon']}  {cat_name}  —  ${cat_total:,.2f}",
                          font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
                          text_color="white").pack(side="left", padx=8)
 
@@ -1446,6 +1572,32 @@ class AnalyticsPage(ctk.CTkFrame):
                       font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
                       command=_apply, cursor="hand2").pack(side="right")
 
+    # ══════════════════════════════════════════════════════════════
+    #  HELPER FUNCTIONS
+    # ══════════════════════════════════════════════════════════════  
+    def _is_in(self, widget, ancestor):
+        """True if widget is ancestor or a descendant of it."""
+        while widget is not None:
+            if widget is ancestor:
+                return True
+            widget = getattr(widget, "master", None)
+        return False
+
+    def _maybe_release_flex(self, event):
+        """Click anywhere outside the flex entry → trigger save."""
+        entry = self._kpi_refs[1]["value"]
+        try:
+            focused = self.focus_get()
+        except KeyError:
+            return
+        if focused is None or not self._is_in(focused, entry):
+            return
+        # Click was on the entry itself → leave it alone
+        if self._is_in(event.widget, entry):
+            return
+        # Move focus to root (best-effort) and trigger save explicitly
+        self.winfo_toplevel().focus_set()
+        self._on_flex_total_focus_out()
     # ══════════════════════════════════════════════════════════════
     #  CLEANUP
     # ══════════════════════════════════════════════════════════════
