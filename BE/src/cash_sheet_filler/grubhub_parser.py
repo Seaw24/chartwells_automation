@@ -1,7 +1,7 @@
 """
 Grubhub Parser Module
 ─────────────────────
-Parses the Grubhub "SalesbyVenuebyPaymentMethod" CSV export.
+Parses the Grubhub "TransactionDetailbyVenuebyPaymentMethod" CSV export.
 
 A single CSV contains many venues across many dates. The parser groups rows
 into ``data[date][venue]`` and reconciles a few quirks of the Grubhub format:
@@ -11,6 +11,8 @@ into ``data[date][venue]`` and reconciles a few quirks of the Grubhub format:
 * For Credit Card rows, Grubhub already deducted a service fee from the sale
   amount. The cash sheet expects the gross figure, so we add the fee back.
 * Discounts are reconciled later (in ``main._add_discounts``).
+* Meal count is tracked only for diagnostics. Cash-sheet order count now comes
+  from the separate Sales-at-a-Glance report.
 
 The class only logs aggregates — never per-row dollars — so the UI stays calm.
 """
@@ -216,7 +218,8 @@ class GrubhubParser(BaseParser):
         return {
             "location": strip_accents(venue),
             "date": date,
-            "count": raw["total_count"],
+            "count": None,
+            "transaction_meal_count": raw["total_count"],
             "total_sales": raw["total_sales"],
             "tax": raw["total_tax"],
             "discounts": raw["total_discounts"],

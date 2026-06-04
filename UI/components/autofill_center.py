@@ -64,6 +64,11 @@ except ImportError:
         from components.autofill_center_runtime import AutoFillRuntimeController
         from components.autofill_center_config import AutoFillConfigController
 
+try:
+    from .icons import get_icon
+except ImportError:
+    from icons import get_icon
+
 # Printer dropdown
 from BE.src.printer import ExcelPrinter
 from BE.src.cash_sheet_filler.config import (  # noqa: E402
@@ -147,6 +152,149 @@ class AutoFillCenter(ctk.CTkFrame):
         log_widget.tag_config("summary", foreground=TEXT)
 
     # ══════════════════════════════════════════════════════════════
+    #  PRINT SETTINGS DIALOG
+    #  Keeps the heavy printer UI out of the page so the Result Log
+    #  always keeps its full height (previously the inline panel
+    #  squeezed the log until it was unreadable).
+    # ══════════════════════════════════════════════════════════════
+    def _print_summary_text(self) -> str:
+        """One-line description of the current print settings."""
+        printer = self._printer_var.get()
+        color = self._print_color_var.get()
+        copies = self._print_copies_var.get().strip() or "1"
+        plural = "copy" if copies == "1" else "copies"
+        return f"{printer}  ·  {color}  ·  {copies} {plural}"
+
+    def _refresh_print_summary(self):
+        if self._cs_auto_print.get() == 1:
+            self._print_summary.configure(text=self._print_summary_text())
+        else:
+            self._print_summary.configure(
+                text="Reports first, then filled cash-sheet tabs")
+
+    def _open_print_dialog(self):
+        if self._cs_auto_print.get() != 1:
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Print Settings")
+        dialog.geometry("480x360")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=BG)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        body = ctk.CTkFrame(dialog, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=18)
+        body.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            body, text="Print Settings",
+            font=ctk.CTkFont(family=FONT, size=16, weight="bold"),
+            text_color=TEXT).grid(row=0, column=0, columnspan=3,
+                                  sticky="w", pady=(0, 12))
+
+        # Printer + refresh
+        ctk.CTkLabel(body, text="Printer",
+                     font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+                     text_color=TEXT_SEC).grid(row=1, column=0, sticky="w",
+                                               pady=(0, 2))
+        printers = ExcelPrinter.get_available_printers()
+        if self._printer_var.get() not in (["System Default"] + printers):
+            self._printer_var.set("System Default")
+        self._printer_dropdown = ctk.CTkOptionMenu(
+            body, variable=self._printer_var,
+            values=["System Default"] + printers,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=CARD, button_color=PURPLE,
+            button_hover_color=PURPLE_DARK, text_color=TEXT,
+            dropdown_font=ctk.CTkFont(family=FONT, size=11),
+            height=32, corner_radius=6, dynamic_resizing=False)
+        self._printer_dropdown.grid(row=2, column=0, columnspan=2,
+                                    sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            body, text="Refresh", image=get_icon("refresh", 14, TEXT_SEC),
+            width=88, height=32, corner_radius=6, fg_color=CARD,
+            text_color=TEXT_SEC, hover_color=BORDER, border_width=1,
+            border_color=BORDER, font=ctk.CTkFont(family=FONT, size=11),
+            command=self._refresh_printers, cursor="hand2"
+        ).grid(row=2, column=2, sticky="w")
+
+        # Option grid
+        opts = ctk.CTkFrame(body, fg_color="transparent")
+        opts.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(14, 0))
+        for col in range(4):
+            opts.grid_columnconfigure(col, weight=1)
+
+        def _cell(col, label, build):
+            cell = ctk.CTkFrame(opts, fg_color="transparent")
+            cell.grid(row=0, column=col, sticky="ew", padx=(0, 8))
+            ctk.CTkLabel(
+                cell, text=label,
+                font=ctk.CTkFont(family=FONT, size=10, weight="bold"),
+                text_color=TEXT_MUTED).pack(anchor="w", pady=(0, 3))
+            build(cell).pack(fill="x")
+
+        def _menu(parent, var, values):
+            return ctk.CTkOptionMenu(
+                parent, variable=var, values=values, height=32,
+                font=ctk.CTkFont(family=FONT, size=11),
+                fg_color=CARD, button_color=PURPLE,
+                button_hover_color=PURPLE_DARK, text_color=TEXT,
+                dropdown_font=ctk.CTkFont(family=FONT, size=11),
+                dynamic_resizing=False)
+
+        _cell(0, "Color", lambda p: _menu(
+            p, self._print_color_var, ["Color", "Black and white"]))
+        _cell(1, "Paper", lambda p: _menu(
+            p, self._print_paper_var, ["Letter", "Legal", "A4", "A3", "Tabloid"]))
+        _cell(2, "Orientation", lambda p: _menu(
+            p, self._print_orientation_var, ["Landscape", "Portrait"]))
+        _cell(3, "Copies", lambda p: ctk.CTkEntry(
+            p, textvariable=self._print_copies_var, height=32,
+            font=ctk.CTkFont(family=FONT, size=11), border_color=BORDER))
+
+        check_row = ctk.CTkFrame(body, fg_color="transparent")
+        check_row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(14, 0))
+        ctk.CTkCheckBox(
+            check_row, text="Double-sided", variable=self._print_duplex_var,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            border_color=BORDER).pack(side="left", padx=(0, 18))
+        ctk.CTkCheckBox(
+            check_row, text="Collate", variable=self._print_collate_var,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            border_color=BORDER).pack(side="left")
+
+        # Buttons
+        btns = ctk.CTkFrame(dialog, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=(0, 16))
+
+        def _save():
+            self._refresh_print_summary()
+            self._printer_dropdown = None
+            dialog.destroy()
+
+        def _cancel():
+            self._printer_dropdown = None
+            dialog.destroy()
+
+        ctk.CTkButton(
+            btns, text="Cancel", width=90, height=34, corner_radius=8,
+            fg_color=BG, text_color=TEXT_SEC, hover_color=BORDER,
+            border_width=1, border_color=BORDER,
+            font=ctk.CTkFont(family=FONT, size=12),
+            command=_cancel).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            btns, text="Save", width=90, height=34, corner_radius=8,
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
+            command=_save).pack(side="right")
+
+        dialog.protocol("WM_DELETE_WINDOW", _cancel)
+
+    # ══════════════════════════════════════════════════════════════
     #  HEADER (with time-saved badge)
     # ══════════════════════════════════════════════════════════════
 
@@ -157,11 +305,11 @@ class AutoFillCenter(ctk.CTkFrame):
         left = ctk.CTkFrame(hdr, fg_color="transparent")
         left.pack(side="left")
 
-        icon = ctk.CTkFrame(left, width=36, height=36, corner_radius=10,
+        icon = ctk.CTkFrame(left, width=36, height=36, corner_radius=8,
                             fg_color=PURPLE_LIGHT)
         icon.pack(side="left", padx=(0, 10))
         icon.pack_propagate(False)
-        ctk.CTkLabel(icon, text="💰", font=ctk.CTkFont(size=16)).place(
+        ctk.CTkLabel(icon, text="", image=get_icon("autofill", 20, PURPLE)).place(
             relx=.5, rely=.5, anchor="center")
 
         tf = ctk.CTkFrame(left, fg_color="transparent")
@@ -169,7 +317,7 @@ class AutoFillCenter(ctk.CTkFrame):
         ctk.CTkLabel(tf, text="Autofill Center",
                      font=ctk.CTkFont(family=FONT, size=20, weight="bold"),
                      text_color=TEXT).pack(anchor="w")
-        ctk.CTkLabel(tf, text="Configure and run automatic data filling",
+        ctk.CTkLabel(tf, text="Cash sheets, tender breakdowns, and print runs",
                      font=ctk.CTkFont(family=FONT, size=11),
                      text_color=TEXT_SEC).pack(anchor="w")
 
@@ -177,7 +325,7 @@ class AutoFillCenter(ctk.CTkFrame):
         right = ctk.CTkFrame(hdr, fg_color="transparent")
         right.pack(side="right")
 
-        ts_card = ctk.CTkFrame(right, fg_color=GREEN_BG, corner_radius=12,
+        ts_card = ctk.CTkFrame(right, fg_color=GREEN_BG, corner_radius=8,
                                border_width=1, border_color="#C8F0D4")
         ts_card.pack(side="right", padx=(8, 0))
 
@@ -246,10 +394,10 @@ class AutoFillCenter(ctk.CTkFrame):
         self._tab_btns = {}
         self._tab_lines = {}
         tabs = [
-            ("cash_sheet",  "💰 Cash Sheet"),
-            ("tender",      "📊 Tender Breakdown"),
-            ("cs_config",   "⚙️ CS Config"),
-            ("tb_config",   "⚙️ TB Config"),
+            ("cash_sheet",  "Cash Sheet"),
+            ("tender",      "Tender Breakdown"),
+            ("cs_config",   "CS Config"),
+            ("tb_config",   "TB Config"),
         ]
         for key, label in tabs:
             wrapper = ctk.CTkFrame(bar, fg_color="transparent")
@@ -303,145 +451,71 @@ class AutoFillCenter(ctk.CTkFrame):
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=16, pady=12)
         inner.grid_columnconfigure(1, weight=1)
-        _section_label(inner, "⚙️ Settings", grid_pos=(0, 0, 2))
+        _section_label(inner, "Run Setup", grid_pos=(0, 0, 2))
 
         self._cs_folder1_entry = self._folder_row(
-            inner, 1, "📁 Cash Sheet Folder:", sync_target="cash_sheet")
+            inner, 1, "Cash Sheet Folder:", sync_target="cash_sheet")
         self._cs_folder1_entry.configure(state="normal")
         self._cs_folder1_entry.insert(0, CASH_SHEET_FOLDER)
         self._cs_folder1_entry.configure(state="readonly")
 
         self._cs_folder2_entry = self._folder_row(
-            inner, 2, "📊 Day Reports Folder:", sync_target="reports")
+            inner, 2, "Day Reports Folder:", sync_target="reports")
         self._cs_folder2_entry.configure(state="normal")
         self._cs_folder2_entry.insert(0, REPORTS_FOLDER)
         self._cs_folder2_entry.configure(state="readonly")
-        # ── Print Settings ──
-        print_frame = ctk.CTkFrame(inner, fg_color="transparent")
-        print_frame.grid(row=3, column=0, columnspan=3,
-                         sticky="ew", pady=(10, 0))
-        print_frame.grid_columnconfigure(0, weight=1)
-
-        self._cs_auto_print = ctk.CTkCheckBox(
-            print_frame, text="🖨️ Auto-print after filling",
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, hover_color=PURPLE_DARK, border_color=BORDER,
-            command=self._toggle_printer_dropdown)
-        self._cs_auto_print.grid(row=0, column=0, sticky="w")
-
-        # Printer selector (hidden until checkbox is checked)
-        self._printer_frame = ctk.CTkFrame(print_frame, fg_color="transparent")
-        self._printer_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        self._printer_frame.grid_columnconfigure(1, weight=1)
-        self._printer_frame.grid_remove()
-
-        ctk.CTkLabel(self._printer_frame, text="Printer:",
-                     font=ctk.CTkFont(family=FONT, size=11),
-                     text_color=TEXT_SEC).grid(row=0, column=0, sticky="w", padx=(0, 6))
-
-        printers = ExcelPrinter.get_available_printers()
+        # ── Print Settings (compact row — full options live in a dialog) ──
+        # State vars persist on the view so the runtime controller and the
+        # popup dialog share them; the heavy printer UI is built on demand
+        # in _open_print_dialog() so it can never squeeze the Result Log.
         default = ExcelPrinter.get_default_printer() or ""
         self._printer_var = ctk.StringVar(
             value=default if default else "System Default")
-        self._printer_dropdown = ctk.CTkOptionMenu(
-            self._printer_frame, variable=self._printer_var,
-            values=["System Default"] + printers,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, button_color=PURPLE_DARK,
-            button_hover_color=PURPLE,
-            dropdown_font=ctk.CTkFont(family=FONT, size=11),
-            width=350, height=28, corner_radius=8,
-            dynamic_resizing=False)
-        self._printer_dropdown.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-
-        # Refresh printers button
-        ctk.CTkButton(
-            self._printer_frame, text="🔄", width=28, height=28,
-            corner_radius=6, fg_color=BG, text_color=TEXT_SEC,
-            hover_color=BORDER, font=ctk.CTkFont(size=12),
-            command=self._refresh_printers, cursor="hand2"
-        ).grid(row=0, column=2, sticky="w")
-
-        self._print_color_var = ctk.StringVar(value="color")
+        self._print_color_var = ctk.StringVar(value="Color")
         self._print_paper_var = ctk.StringVar(value="Letter")
-        self._print_orientation_var = ctk.StringVar(value="landscape")
+        self._print_orientation_var = ctk.StringVar(value="Landscape")
         self._print_duplex_var = ctk.IntVar(value=0)
         self._print_collate_var = ctk.IntVar(value=1)
-        self._print_copies_var = ctk.IntVar(value=1)
+        self._print_copies_var = ctk.StringVar(value="1")
+        self._printer_dropdown = None  # created lazily inside the dialog
 
-        options_row = ctk.CTkFrame(self._printer_frame, fg_color="transparent")
-        options_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        for col in range(6):
-            options_row.grid_columnconfigure(col, weight=1)
+        print_frame = ctk.CTkFrame(
+            inner, fg_color=BG, corner_radius=8,
+            border_width=1, border_color=BORDER)
+        print_frame.grid(row=3, column=0, columnspan=3,
+                         sticky="ew", pady=(12, 0))
+        print_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkOptionMenu(
-            options_row, variable=self._print_color_var,
-            values=["color", "bw"], width=100, height=28,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, button_color=PURPLE_DARK,
-            button_hover_color=PURPLE,
-            dropdown_font=ctk.CTkFont(family=FONT, size=11),
-            dynamic_resizing=False
-        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self._cs_auto_print = ctk.CTkCheckBox(
+            print_frame, text="Auto-print after filling",
+            font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
+            fg_color=PURPLE, hover_color=PURPLE_DARK, border_color=BORDER,
+            command=self._toggle_printer_dropdown)
+        self._cs_auto_print.grid(row=0, column=0, sticky="w",
+                                 padx=12, pady=10)
 
-        ctk.CTkOptionMenu(
-            options_row, variable=self._print_paper_var,
-            values=["Letter", "Legal", "A4", "A3", "Tabloid"],
-            width=100, height=28,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, button_color=PURPLE_DARK,
-            button_hover_color=PURPLE,
-            dropdown_font=ctk.CTkFont(family=FONT, size=11),
-            dynamic_resizing=False
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        self._print_summary = ctk.CTkLabel(
+            print_frame, text="Reports first, then filled cash-sheet tabs",
+            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
+        self._print_summary.grid(row=0, column=1, sticky="e", padx=(8, 8))
 
-        ctk.CTkOptionMenu(
-            options_row, variable=self._print_orientation_var,
-            values=["landscape", "portrait"], width=110, height=28,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, button_color=PURPLE_DARK,
-            button_hover_color=PURPLE,
-            dropdown_font=ctk.CTkFont(family=FONT, size=11),
-            dynamic_resizing=False
-        ).grid(row=0, column=2, sticky="ew", padx=(0, 6))
-
-        ctk.CTkCheckBox(
-            options_row, text="Double-sided",
-            variable=self._print_duplex_var,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, hover_color=PURPLE_DARK,
-            border_color=BORDER
-        ).grid(row=0, column=3, sticky="w", padx=(0, 6))
-
-        ctk.CTkCheckBox(
-            options_row, text="Collate",
-            variable=self._print_collate_var,
-            font=ctk.CTkFont(family=FONT, size=11),
-            fg_color=PURPLE, hover_color=PURPLE_DARK,
-            border_color=BORDER
-        ).grid(row=0, column=4, sticky="w", padx=(0, 6))
-
-        copies_frame = ctk.CTkFrame(options_row, fg_color="transparent")
-        copies_frame.grid(row=0, column=5, sticky="e")
-        ctk.CTkLabel(
-            copies_frame, text="Copies:",
-            font=ctk.CTkFont(family=FONT, size=11),
-            text_color=TEXT_SEC
-        ).pack(side="left", padx=(0, 4))
-        ctk.CTkEntry(
-            copies_frame, textvariable=self._print_copies_var,
-            width=48, height=28,
-            font=ctk.CTkFont(family=FONT, size=11),
-            border_color=BORDER
-        ).pack(side="left")
+        self._print_options_btn = ctk.CTkButton(
+            print_frame, text="Print options", image=get_icon("printer", 15, PURPLE),
+            width=128, height=30, corner_radius=6,
+            fg_color=CARD, text_color=PURPLE, hover_color=PURPLE_LIGHT,
+            border_width=1, border_color=BORDER,
+            font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
+            command=self._open_print_dialog, cursor="hand2", state="disabled")
+        self._print_options_btn.grid(row=0, column=2, sticky="e",
+                                     padx=(0, 12), pady=10)
 
         bf = ctk.CTkFrame(inner, fg_color="transparent")
         bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self._cs_run_btn = ctk.CTkButton(
-            bf, text="🚀  Run Cash Sheet Autofill",
+            bf, text="Run Cash Sheet Autofill",
             font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
             fg_color=PURPLE, hover_color=PURPLE_DARK,
-            height=40, corner_radius=10,
+            height=40, corner_radius=8,
             command=self._run_cash_sheet_autofill, cursor="hand2")
         self._cs_run_btn.pack(fill="x")
 
@@ -449,7 +523,7 @@ class AutoFillCenter(ctk.CTkFrame):
         log_card.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
         log_header = ctk.CTkFrame(log_card, fg_color="transparent")
         log_header.pack(fill="x", padx=16, pady=(10, 4))
-        ctk.CTkLabel(log_header, text="📋 Result Log",
+        ctk.CTkLabel(log_header, text="Result Log",
                      font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
                      text_color=TEXT).pack(side="left")
         ctk.CTkButton(
@@ -496,18 +570,18 @@ class AutoFillCenter(ctk.CTkFrame):
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=16, pady=12)
         inner.grid_columnconfigure(1, weight=1)
-        _section_label(inner, "⚙️ Settings", grid_pos=(0, 0, 2))
+        _section_label(inner, "Settings", grid_pos=(0, 0, 2))
 
         # Cash Sheets folder (same folder as cash sheet tab)
         self._tb_folder_entry = self._folder_row(
-            inner, 1, "📁 Cash Sheets Folder:", sync_target="cash_sheet")
+            inner, 1, "Cash Sheets Folder:", sync_target="cash_sheet")
         self._tb_folder_entry.configure(state="normal")
         self._tb_folder_entry.insert(0, CASH_SHEET_FOLDER)
         self._tb_folder_entry.configure(state="readonly")
 
         # Master Breakdown file
         self._tb_file_entry = self._file_row(
-            inner, 2, "📄 Tender Breakdown File:", sync_target="master_path")
+            inner, 2, "Tender Breakdown File:", sync_target="master_path")
         if _HAS_TENDER:
             master = DIRECTORY_PATHS.get("master_path", "")
             self._tb_file_entry.configure(state="normal")
@@ -518,7 +592,7 @@ class AutoFillCenter(ctk.CTkFrame):
         bf = ctk.CTkFrame(inner, fg_color="transparent")
         bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self._tb_run_btn = ctk.CTkButton(
-            bf, text="🚀  Run Tender Breakdown Autofill",
+            bf, text="Run Tender Breakdown Autofill",
             font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
             fg_color=PURPLE, hover_color=PURPLE_DARK,
             height=40, corner_radius=10,
@@ -527,7 +601,7 @@ class AutoFillCenter(ctk.CTkFrame):
 
         if not _HAS_TENDER:
             self._tb_run_btn.configure(state="disabled",
-                                       text="⚠️  Tender module not found")
+                                       text="Tender module not found")
 
         # Result log — same structure as the cash sheet card so the user
         # gets a consistent experience across tabs.
@@ -535,7 +609,7 @@ class AutoFillCenter(ctk.CTkFrame):
         log_card.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 12))
         log_header = ctk.CTkFrame(log_card, fg_color="transparent")
         log_header.pack(fill="x", padx=16, pady=(10, 4))
-        ctk.CTkLabel(log_header, text="📋 Result Log",
+        ctk.CTkLabel(log_header, text="Result Log",
                      font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
                      text_color=TEXT).pack(side="left")
         ctk.CTkButton(
@@ -583,7 +657,7 @@ class AutoFillCenter(ctk.CTkFrame):
                             fg_color=PURPLE_LIGHT)
         icon.pack(side="left", padx=(0, 10))
         icon.pack_propagate(False)
-        ctk.CTkLabel(icon, text="💰", font=ctk.CTkFont(size=14)).place(
+        ctk.CTkLabel(icon, text="", image=get_icon("revenue", 17, PURPLE)).place(
             relx=.5, rely=.5, anchor="center")
         lbl_frame = ctk.CTkFrame(hdr_frame, fg_color="transparent")
         lbl_frame.pack(side="left")
@@ -603,14 +677,14 @@ class AutoFillCenter(ctk.CTkFrame):
         w_paths = ctk.CTkFrame(c_paths, fg_color="transparent")
         w_paths.pack(fill="x", padx=16, pady=12)
         w_paths.grid_columnconfigure(1, weight=1)
-        _section_label(w_paths, "📂 Folder Paths", grid_pos=(0, 0, 2))
+        _section_label(w_paths, "Folder Paths", grid_pos=(0, 0, 2))
         self._config_cs_folder = self._folder_row(
-            w_paths, 1, "📁 Cash Sheet Folder:", sync_target="cash_sheet")
+            w_paths, 1, "Cash Sheet Folder:", sync_target="cash_sheet")
         self._config_cs_folder.configure(state="normal")
         self._config_cs_folder.insert(0, CASH_SHEET_FOLDER)
         self._config_cs_folder.configure(state="readonly")
         self._config_rep_folder = self._folder_row(
-            w_paths, 2, "📊 Day Reports Folder:", sync_target="reports")
+            w_paths, 2, "Day Reports Folder:", sync_target="reports")
         self._config_rep_folder.configure(state="normal")
         self._config_rep_folder.insert(0, REPORTS_FOLDER)
         self._config_rep_folder.configure(state="readonly")
@@ -623,7 +697,7 @@ class AutoFillCenter(ctk.CTkFrame):
         w1.pack(fill="x", padx=16, pady=12)
         hdr = ctk.CTkFrame(w1, fg_color="transparent")
         hdr.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr, text="🏢 Cash Sheet Location Mappings",
+        ctk.CTkLabel(hdr, text="Cash Sheet Location Mappings",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         self._cs_loc_count = ctk.CTkLabel(
@@ -643,7 +717,7 @@ class AutoFillCenter(ctk.CTkFrame):
         w_gh.pack(fill="x", padx=16, pady=12)
         hdr_gh = ctk.CTkFrame(w_gh, fg_color="transparent")
         hdr_gh.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr_gh, text="🍔 Grubhub Venue Mappings",
+        ctk.CTkLabel(hdr_gh, text="Grubhub Venue Mappings",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         self._gh_loc_count = ctk.CTkLabel(
@@ -663,7 +737,7 @@ class AutoFillCenter(ctk.CTkFrame):
         w2.pack(fill="x", padx=16, pady=12)
         hdr2 = ctk.CTkFrame(w2, fg_color="transparent")
         hdr2.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr2, text="📐 Fill Column Mappings",
+        ctk.CTkLabel(hdr2, text="Fill Column Mappings",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         _add_button(hdr2, lambda: self._add_kv(FILL_COL_MAP, self._fill_tbl))
@@ -675,7 +749,7 @@ class AutoFillCenter(ctk.CTkFrame):
         ctk.CTkFrame(w2, fg_color=BORDER, height=1).pack(fill="x", pady=10)
         hdr3 = ctk.CTkFrame(w2, fg_color="transparent")
         hdr3.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr3, text="✅ Checking Columns",
+        ctk.CTkLabel(hdr3, text="Checking Columns",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         _add_button(hdr3, lambda: self._add_kv(
@@ -686,11 +760,11 @@ class AutoFillCenter(ctk.CTkFrame):
 
         # ── Tender Mappings (Cash Sheet) ───────────────────────
         tender_maps = [
-            ("📄 Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS),
-            ("📄 Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS),
-            ("🍔 Grubhub Tenders", "Payment Method",
+            ("Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS),
+            ("Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS),
+            ("Grubhub Tenders", "Payment Method",
              "Internal Key", GRUBHUB_TENDERS),
-            ("📋 Cash Sheet Tenders", "Key", "Default", CASHEET_TENDERS),
+            ("Cash Sheet Tenders", "Key", "Default", CASHEET_TENDERS),
         ]
         for heading, kl, vl, data in tender_maps:
             tc = _Card(page)
@@ -730,7 +804,7 @@ class AutoFillCenter(ctk.CTkFrame):
                             fg_color=PURPLE_LIGHT)
         icon.pack(side="left", padx=(0, 10))
         icon.pack_propagate(False)
-        ctk.CTkLabel(icon, text="📊", font=ctk.CTkFont(size=14)).place(
+        ctk.CTkLabel(icon, text="", image=get_icon("analytics", 17, PURPLE)).place(
             relx=.5, rely=.5, anchor="center")
         lbl_frame = ctk.CTkFrame(hdr_frame, fg_color="transparent")
         lbl_frame.pack(side="left")
@@ -749,7 +823,7 @@ class AutoFillCenter(ctk.CTkFrame):
                         sticky="ew", padx=20, pady=(10, 8))
             nw = ctk.CTkFrame(notice, fg_color="transparent")
             nw.pack(fill="x", padx=16, pady=16)
-            ctk.CTkLabel(nw, text="⚠️  Tender breakdown module not found",
+            ctk.CTkLabel(nw, text="Tender breakdown module not found",
                          font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                          text_color=ORANGE).pack(anchor="w")
             ctk.CTkLabel(nw, text="Install or configure the tender_break module to enable this section.",
@@ -765,16 +839,16 @@ class AutoFillCenter(ctk.CTkFrame):
         wtp = ctk.CTkFrame(ct_paths, fg_color="transparent")
         wtp.pack(fill="x", padx=16, pady=12)
         wtp.grid_columnconfigure(1, weight=1)
-        _section_label(wtp, "📂 Paths & Settings", grid_pos=(0, 0, 2))
+        _section_label(wtp, "Paths & Settings", grid_pos=(0, 0, 2))
         self._config_tb_master = self._file_row(
-            wtp, 1, "📄 Breakdown File:", sync_target="master_path")
+            wtp, 1, "Breakdown File:", sync_target="master_path")
         self._config_tb_master.configure(state="normal")
         self._config_tb_master.insert(
             0, DIRECTORY_PATHS.get("master_path", ""))
         self._config_tb_master.configure(state="readonly")
 
         # Date col + first date row
-        ctk.CTkLabel(wtp, text="📅 Date Column:",
+        ctk.CTkLabel(wtp, text="Date Column:",
                      font=ctk.CTkFont(family=FONT, size=12),
                      text_color=TEXT).grid(row=2, column=0, sticky="w", pady=(6, 0))
         self._config_date_col = ctk.CTkEntry(
@@ -784,7 +858,7 @@ class AutoFillCenter(ctk.CTkFrame):
             row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
         self._config_date_col.insert(0, str(DATE_COL))
 
-        ctk.CTkLabel(wtp, text="📍 First Date Row:",
+        ctk.CTkLabel(wtp, text="First Date Row:",
                      font=ctk.CTkFont(family=FONT, size=12),
                      text_color=TEXT).grid(row=3, column=0, sticky="w", pady=(6, 0))
         self._config_first_row = ctk.CTkEntry(
@@ -796,7 +870,7 @@ class AutoFillCenter(ctk.CTkFrame):
 
         # Save settings button
         ctk.CTkButton(
-            wtp, text="💾 Save Settings", width=120, height=30,
+            wtp, text="Save Settings", width=120, height=30,
             corner_radius=8, fg_color=GREEN, hover_color="#2DA44E",
             font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
             command=self._save_tender_settings
@@ -810,7 +884,7 @@ class AutoFillCenter(ctk.CTkFrame):
         wf.pack(fill="x", padx=16, pady=12)
         hf = ctk.CTkFrame(wf, fg_color="transparent")
         hf.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hf, text="📂 Filename → Master Name Mappings",
+        ctk.CTkLabel(hf, text="Filename → Master Name Mappings",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         self._fn_map_count = ctk.CTkLabel(
@@ -830,7 +904,7 @@ class AutoFillCenter(ctk.CTkFrame):
         wl.pack(fill="x", padx=16, pady=12)
         hl = ctk.CTkFrame(wl, fg_color="transparent")
         hl.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hl, text="📐 Location Start Columns",
+        ctk.CTkLabel(hl, text="Location Start Columns",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(side="left")
         self._loc_col_count = ctk.CTkLabel(
@@ -853,7 +927,7 @@ class AutoFillCenter(ctk.CTkFrame):
         grid_row += 1
         wi = ctk.CTkFrame(ci, fg_color="transparent")
         wi.pack(fill="x", padx=16, pady=12)
-        ctk.CTkLabel(wi, text="📊 Important Casheet Data Columns",
+        ctk.CTkLabel(wi, text="Important Casheet Data Columns",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
                      text_color=TEXT).pack(anchor="w", pady=(0, 8))
         ctk.CTkLabel(wi, text="Comma-separated column numbers extracted from each cash sheet row:",
@@ -866,7 +940,7 @@ class AutoFillCenter(ctk.CTkFrame):
         self._config_data_cols.insert(
             0, ", ".join(str(c) for c in IMPORTANT_CASHEET_DATA_COL))
         ctk.CTkButton(
-            wi, text="💾 Save Columns", width=120, height=30,
+            wi, text="Save Columns", width=120, height=30,
             corner_radius=8, fg_color=GREEN, hover_color="#2DA44E",
             font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
             command=self._save_tender_data_cols

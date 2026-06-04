@@ -3,28 +3,43 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+try:
+    from .theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT, PRIMARY_SUBTLE, BG_SUBTLE,
+        CARD, BORDER, TEXT, TEXT_SEC, TEXT_MUTED as _TM,
+        GREEN, GREEN_BG, RED, RED_BG, AMBER, AMBER_BG, ACCENT, FONT,
+    )
+    from .icons import get_icon
+except ImportError:  # flat import fallback
+    from theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT, PRIMARY_SUBTLE, BG_SUBTLE,
+        CARD, BORDER, TEXT, TEXT_SEC, TEXT_MUTED as _TM,
+        GREEN, GREEN_BG, RED, RED_BG, AMBER, AMBER_BG, ACCENT, FONT,
+    )
+    from icons import get_icon
+
 TASK_FILE = str(Path(__file__).resolve().parents[2] / "tasks.json")
 
-# --- Color Palette ---
-PURPLE = "#6C5CE7"
-PURPLE_HOVER = "#5B4CD6"
-PURPLE_LIGHT = "#EDE9FF"
-PURPLE_SUBTLE = "#F4F1FF"
-BG_GRAY = "#F5F5F7"
-BG_CARD_HOVER = "#EFEFEF"
-TEXT_PRIMARY = "#1a1a1a"
-TEXT_SECONDARY = "#8E8E93"
-TEXT_MUTED = "#AEAEB2"
-CARD_BG = "#FFFFFF"
-BORDER_COLOR = "#E5E5EA"
-SUCCESS = "#34C759"
-SUCCESS_BG = "#E8F9EE"
-DANGER = "#FF3B30"
-DANGER_BG = "#FFE5E5"
-WARNING = "#FF9500"
-WARNING_BG = "#FFF4E5"
-AVATAR_COLORS = ["#6C5CE7", "#00B894",
-                 "#0984E3", "#E17055", "#FDCB6E", "#636E72"]
+# --- Color Palette (unified — see theme.py; names kept for in-file refs) ---
+PURPLE = PRIMARY
+PURPLE_HOVER = PRIMARY_DARK
+PURPLE_LIGHT = PRIMARY_LIGHT
+PURPLE_SUBTLE = PRIMARY_SUBTLE
+BG_GRAY = BG_SUBTLE
+BG_CARD_HOVER = "#EAEFF2"
+TEXT_PRIMARY = TEXT
+TEXT_SECONDARY = TEXT_SEC
+TEXT_MUTED = _TM
+CARD_BG = CARD
+BORDER_COLOR = BORDER
+SUCCESS = GREEN
+SUCCESS_BG = GREEN_BG
+DANGER = RED
+DANGER_BG = RED_BG
+WARNING = AMBER
+WARNING_BG = AMBER_BG
+AVATAR_COLORS = [PRIMARY, ACCENT, "#3E92A3",
+                 "#6B5B95", "#B7791F", "#5A6873"]
 
 
 class TaskManager(ctk.CTkFrame):
@@ -65,12 +80,12 @@ class TaskManager(ctk.CTkFrame):
         )
         icon_box.pack(side="left", padx=(0, 10))
         icon_box.pack_propagate(False)
-        ctk.CTkLabel(icon_box, text="📋", font=ctk.CTkFont(size=14)).place(
+        ctk.CTkLabel(icon_box, text="", image=get_icon("tasks", 16, PURPLE)).place(
             relx=0.5, rely=0.5, anchor="center")
 
         ctk.CTkLabel(
             left, text="Team Tasks",
-            font=ctk.CTkFont(family="Arial", size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT, size=18, weight="bold"),
             text_color=TEXT_PRIMARY
         ).pack(side="left")
 
@@ -191,12 +206,12 @@ class TaskManager(ctk.CTkFrame):
         )
         icon_box.pack(side="left", padx=(0, 10))
         icon_box.pack_propagate(False)
-        ctk.CTkLabel(icon_box, text="📝", font=ctk.CTkFont(size=16)).place(
+        ctk.CTkLabel(icon_box, text="", image=get_icon("tasks", 18, PURPLE)).place(
             relx=0.5, rely=0.5, anchor="center")
 
         ctk.CTkLabel(
             title_row, text="Create New Task",
-            font=ctk.CTkFont(family="Arial", size=20, weight="bold"),
+            font=ctk.CTkFont(family=FONT, size=20, weight="bold"),
             text_color=TEXT_PRIMARY
         ).pack(side="left")
 
@@ -286,7 +301,7 @@ class TaskManager(ctk.CTkFrame):
     def _make_field_label(self, parent, text):
         ctk.CTkLabel(
             parent, text=text,
-            font=ctk.CTkFont(family="Arial", size=12, weight="bold"),
+            font=ctk.CTkFont(family=FONT, size=12, weight="bold"),
             text_color=TEXT_SECONDARY, anchor="w"
         ).pack(anchor="w", pady=(0, 5))
 
@@ -451,7 +466,7 @@ class TaskManager(ctk.CTkFrame):
         task_name = task.get('name', task.get('description', 'Untitled'))
         ctk.CTkLabel(
             info, text=task_name,
-            font=ctk.CTkFont(family="Arial", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
             text_color=TEXT_PRIMARY, anchor="w"
         ).pack(anchor="w")
 
@@ -461,7 +476,7 @@ class TaskManager(ctk.CTkFrame):
 
         ctk.CTkLabel(
             sub_row, text=f"{assignee}",
-            font=ctk.CTkFont(family="Arial", size=12),
+            font=ctk.CTkFont(family=FONT, size=12),
             text_color=TEXT_SECONDARY
         ).pack(side="left")
 
@@ -472,7 +487,8 @@ class TaskManager(ctk.CTkFrame):
         )
         deadline_badge.pack(side="left", padx=(10, 0))
         ctk.CTkLabel(
-            deadline_badge, text=f"  📅 {dl_text}  ",
+            deadline_badge, text=f"  {dl_text}  ",
+            image=get_icon("calendar", 12, dl_color), compound="left",
             font=ctk.CTkFont(size=11), text_color=dl_color
         ).pack(padx=2, pady=1)
 
@@ -489,10 +505,10 @@ class TaskManager(ctk.CTkFrame):
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
-            actions, text="🗑", width=30, height=30,
+            actions, text="", image=get_icon("trash", 15, DANGER),
+            width=30, height=30,
             fg_color="transparent", hover_color=DANGER_BG,
             text_color=DANGER, corner_radius=8,
-            font=ctk.CTkFont(size=14),
             command=lambda t=task: self.delete_task(t)
         ).pack(side="left")
 
@@ -526,7 +542,7 @@ class TaskManager(ctk.CTkFrame):
         task_name = task.get('name', task.get('description', 'Untitled'))
         ctk.CTkLabel(
             info, text=task_name,
-            font=ctk.CTkFont(family="Arial", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
             text_color=TEXT_MUTED, anchor="w"
         ).pack(anchor="w")
 
@@ -537,7 +553,7 @@ class TaskManager(ctk.CTkFrame):
         assignee = task.get('assignee', 'Unassigned')
         ctk.CTkLabel(
             sub_row, text=f"{assignee}",
-            font=ctk.CTkFont(family="Arial", size=12),
+            font=ctk.CTkFont(family=FONT, size=12),
             text_color=TEXT_MUTED
         ).pack(side="left")
 
@@ -565,9 +581,9 @@ class TaskManager(ctk.CTkFrame):
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
-            actions, text="🗑", width=30, height=30,
+            actions, text="", image=get_icon("trash", 15, DANGER),
+            width=30, height=30,
             fg_color="transparent", hover_color=DANGER_BG,
             text_color=DANGER, corner_radius=8,
-            font=ctk.CTkFont(size=14),
             command=lambda t=task: self.delete_task(t)
         ).pack(side="left")

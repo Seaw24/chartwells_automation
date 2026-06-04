@@ -23,7 +23,6 @@ class PrintSettings:
     paper_size: str = "Letter"
     duplex: bool = False
     copies: int = 1
-    # Retained for UI compatibility; Windows report layout is hardcoded portrait.
     orientation: str = "landscape"
     collate: bool = True
 
@@ -31,13 +30,21 @@ class PrintSettings:
     def from_dict(cls, values: dict | None) -> "PrintSettings":
         if not values:
             return cls()
+        color_mode = str(values.get("color_mode", "color")).lower()
+        if color_mode in {"black and white", "black & white", "b&w"}:
+            color_mode = "bw"
+        orientation = str(values.get("orientation", "landscape")).lower()
         return cls(
             printer_name=values.get("printer_name") or None,
-            color_mode=values.get("color_mode", "color"),
+            color_mode=color_mode if color_mode in {"color", "bw"} else "color",
             paper_size=values.get("paper_size", "Letter"),
             duplex=bool(values.get("duplex", False)),
             copies=max(1, int(values.get("copies", 1) or 1)),
-            orientation=values.get("orientation", "landscape"),
+            orientation=(
+                orientation
+                if orientation in {"portrait", "landscape"}
+                else "landscape"
+            ),
             collate=bool(values.get("collate", True)),
         )
 
@@ -52,6 +59,10 @@ class ExcelPrinter:
         "A3": 8,
         "Tabloid": 3,
     }
+    _ORIENTATIONS = {
+        "portrait": 1,
+        "landscape": 2,
+    }
 
     def __init__(self, printer_name=None, tracker=None, settings=None):
         self.settings = PrintSettings.from_dict(settings)
@@ -60,6 +71,8 @@ class ExcelPrinter:
         self.printer_name = self.settings.printer_name
         self.tracker = tracker
         self._windows_default_printer_original = None
+        self._printer_driver_original = None
+        self._excel_active_printer = None
 
     def _log(self, msg, kind="info"):
         """
@@ -176,6 +189,7 @@ class ExcelPrinter:
         excel = None
         try:
             self._set_windows_default_printer_for_excel()
+            self._apply_windows_driver_print_settings()
             excel = self._open_excel()
             self._set_windows_printer(excel)
             self._print_reports_windows(excel, reports_dir, printable_reports)
@@ -186,6 +200,7 @@ class ExcelPrinter:
             return True
         finally:
             self._close_excel(excel)
+            self._restore_windows_driver_print_settings()
             self._restore_windows_default_printer()
 
     def _get_installed_windows_printer_name(self, requested):
@@ -241,6 +256,159 @@ class ExcelPrinter:
         finally:
             self._windows_default_printer_original = None
 
+    def _get_effective_windows_printer_name(self):
+        if self.printer_name:
+            return self._get_installed_windows_printer_name(
+                str(self.printer_name).strip())
+        import win32print
+        return win32print.GetDefaultPrinter()
+
+    @staticmethod
+    def _open_windows_printer(win32print, name):
+        try:
+            return win32print.OpenPrinter(
+                name, {"DesiredAccess": win32print.PRINTER_ACCESS_USE})
+        except TypeError:
+            return win32print.OpenPrinter(name)
+
+    @staticmethod
+    def _get_devmode_attr(devmode, attr):
+        for name in (attr, f"dm{attr}"):
+            if hasattr(devmode, name):
+                return getattr(devmode, name)
+        return None
+
+    @staticmethod
+    def _set_devmode_attr(devmode, attr, value):
+        for name in (attr, f"dm{attr}"):
+            if hasattr(devmode, name):
+                setattr(devmode, name, value)
+                return True
+        return False
+
+    def _snapshot_devmode(self, devmode):
+        return {
+            "Fields": self._get_devmode_attr(devmode, "Fields"),
+            "Duplex": self._get_devmode_attr(devmode, "Duplex"),
+            "Color": self._get_devmode_attr(devmode, "Color"),
+        }
+
+    def _set_devmode_setting(self, devmode, attr, value, field_flag):
+        fields = self._get_devmode_attr(devmode, "Fields")
+        if fields is not None:
+            self._set_devmode_attr(devmode, "Fields", fields | field_flag)
+        return self._set_devmode_attr(devmode, attr, value)
+
+    def _apply_windows_driver_print_settings(self):
+        """
+        Apply printer-driver settings Excel does not expose directly.
+
+        Excel PageSetup handles paper/orientation/black-and-white at the sheet
+        level and PrintOut handles copies/collate. Duplex is a Windows printer
+        driver setting, so we temporarily set it on the effective printer and
+        restore the previous values after the batch.
+        """
+        handle = None
+        try:
+            import win32con
+            import win32print
+
+            name = self._get_effective_windows_printer_name()
+            handle = self._open_windows_printer(win32print, name)
+            info = win32print.GetPrinter(handle, 2)
+            devmode = info.get("pDevMode")
+            if devmode is None:
+                self._log(
+                    f"Printer '{name}' has no editable driver settings.",
+                    kind="warning")
+                return
+
+            original = self._snapshot_devmode(devmode)
+            changed = []
+
+            duplex_value = (
+                getattr(win32con, "DMDUP_VERTICAL", 2)
+                if self.settings.duplex
+                else getattr(win32con, "DMDUP_SIMPLEX", 1)
+            )
+            if self._set_devmode_setting(
+                    devmode, "Duplex", duplex_value,
+                    getattr(win32con, "DM_DUPLEX", 0x1000)):
+                changed.append(
+                    "double-sided" if self.settings.duplex else "single-sided")
+
+            color_value = (
+                getattr(win32con, "DMCOLOR_MONOCHROME", 1)
+                if self.settings.color_mode == "bw"
+                else getattr(win32con, "DMCOLOR_COLOR", 2)
+            )
+            if self._set_devmode_setting(
+                    devmode, "Color", color_value,
+                    getattr(win32con, "DM_COLOR", 0x800)):
+                changed.append(
+                    "black and white"
+                    if self.settings.color_mode == "bw" else "color")
+
+            if not changed:
+                return
+
+            info["pDevMode"] = devmode
+            win32print.SetPrinter(handle, 2, info, 0)
+            self._printer_driver_original = (name, original)
+            self._log(
+                f"Printer options applied: {', '.join(changed)}",
+                kind="detail")
+        except Exception as exc:
+            self._log(
+                f"WARNING: Could not apply printer driver options: {exc}. "
+                "Excel page settings will still be applied.",
+                kind="warning")
+        finally:
+            if handle is not None:
+                try:
+                    win32print.ClosePrinter(handle)
+                except Exception:
+                    pass
+
+    def _restore_windows_driver_print_settings(self):
+        if not self._printer_driver_original:
+            return
+
+        name, snapshot = self._printer_driver_original
+        handle = None
+        try:
+            import win32print
+
+            handle = self._open_windows_printer(win32print, name)
+            info = win32print.GetPrinter(handle, 2)
+            devmode = info.get("pDevMode")
+            if devmode is None:
+                return
+
+            for attr in ("Duplex", "Color"):
+                value = snapshot.get(attr)
+                if value is not None:
+                    self._set_devmode_attr(devmode, attr, value)
+            fields = snapshot.get("Fields")
+            if fields is not None:
+                self._set_devmode_attr(devmode, "Fields", fields)
+
+            info["pDevMode"] = devmode
+            win32print.SetPrinter(handle, 2, info, 0)
+            self._log("Restored printer driver options.", kind="detail")
+        except Exception as exc:
+            self._log(
+                f"WARNING: Could not restore printer driver options for "
+                f"'{name}': {exc}. Check Windows printer settings manually.",
+                kind="warning")
+        finally:
+            if handle is not None:
+                try:
+                    win32print.ClosePrinter(handle)
+                except Exception:
+                    pass
+            self._printer_driver_original = None
+
     def _set_windows_printer(self, excel):
         if not self.printer_name:
             return
@@ -255,6 +423,7 @@ class ExcelPrinter:
             pass
         active_name = current_active.split(" on ", 1)[0].strip()
         if active_name.lower() == installed_name.lower():
+            self._excel_active_printer = current_active or installed_name
             self._log(f"Printer selected: {installed_name}", kind="detail")
             return
 
@@ -308,6 +477,7 @@ class ExcelPrinter:
         for candidate in dict.fromkeys(candidates):
             try:
                 excel.ActivePrinter = candidate
+                self._excel_active_printer = candidate
                 self._log(f"Printer selected: {requested}", kind="detail")
                 return
             except Exception as exc:
@@ -317,6 +487,10 @@ class ExcelPrinter:
             import win32print
             default_printer = win32print.GetDefaultPrinter()
             if default_printer.strip().lower() == installed_name.lower():
+                try:
+                    self._excel_active_printer = str(excel.ActivePrinter)
+                except Exception:
+                    self._excel_active_printer = installed_name
                 self._log(
                     f"Printer selected: {installed_name} (Windows default)",
                     kind="detail")
@@ -330,6 +504,11 @@ class ExcelPrinter:
             "then retry with the same printer selected."
         )
 
+    @staticmethod
+    def _is_grubhub_order_count_file(filename):
+        normalized = "".join(ch for ch in filename.lower() if ch.isalnum())
+        return normalized.startswith("salesataglance")
+
     def _print_reports_windows(self, excel, reports_dir, printable_reports):
         try:
             all_files = os.listdir(reports_dir)
@@ -342,6 +521,9 @@ class ExcelPrinter:
         tavlo = [f for f in all_files if f.lower().endswith(".xls")]
         grubhub = [f for f in all_files
                    if f.lower().endswith(".csv") and f.startswith("TransactionDetailbyVenue")]
+        grubhub_counts = [f for f in all_files
+                          if f.lower().endswith(".csv")
+                          and self._is_grubhub_order_count_file(f)]
 
         # Then narrow to "had non-zero data" reports if the engine gave us a
         # filter set. ``None`` keeps the legacy behavior of printing every file
@@ -350,14 +532,19 @@ class ExcelPrinter:
             infor = [f for f in infor if f in printable_reports]
             tavlo = [f for f in tavlo if f in printable_reports]
             grubhub = [f for f in grubhub if f in printable_reports]
+            grubhub_counts = [
+                f for f in grubhub_counts if f in printable_reports]
 
-        total_reports = len(infor) + len(tavlo) + len(grubhub)
+        total_reports = (
+            len(infor) + len(tavlo) + len(grubhub) + len(grubhub_counts)
+        )
         if total_reports == 0:
             return
 
         self._log(
             f"Printing reports — {len(infor)} Infor · "
-            f"{len(tavlo)} Tavlo · {len(grubhub)} Grubhub",
+            f"{len(tavlo)} Tavlo · "
+            f"{len(grubhub) + len(grubhub_counts)} Grubhub",
             kind="section")
 
         printed, failed = 0, 0
@@ -372,6 +559,12 @@ class ExcelPrinter:
         for name in grubhub:
             printed, failed = self._count_print(
                 self._print_grubhub(excel, os.path.join(reports_dir, name)),
+                printed, failed)
+        for name in grubhub_counts:
+            printed, failed = self._count_print(
+                self._print_grubhub(
+                    excel, os.path.join(reports_dir, name),
+                    kind="Grubhub counts"),
                 printed, failed)
 
         self._log(
@@ -442,7 +635,9 @@ class ExcelPrinter:
         except Exception:
             pass
 
-        ws.PageSetup.Orientation = 1  # xlPortrait — reports always vertical
+        orientation = self._ORIENTATIONS.get(
+            str(self.settings.orientation).lower(), 2)
+        ws.PageSetup.Orientation = orientation
         ws.PageSetup.Zoom = 100  # no scaling — preserve column widths even if multi-page
         ws.PageSetup.LeftMargin = 18
         ws.PageSetup.RightMargin = 18
@@ -459,7 +654,13 @@ class ExcelPrinter:
             pass
 
     def _print_sheet(self, ws):
-        ws.PrintOut(Copies=self.settings.copies, Collate=self.settings.collate)
+        kwargs = {
+            "Copies": self.settings.copies,
+            "Collate": self.settings.collate,
+        }
+        if self._excel_active_printer:
+            kwargs["ActivePrinter"] = self._excel_active_printer
+        ws.PrintOut(**kwargs)
 
     def _print_infor(self, excel, file_path):
         return self._print_workbook(
@@ -487,9 +688,9 @@ class ExcelPrinter:
             missing_sheet_msg="No Financials sheet",
         )
 
-    def _print_grubhub(self, excel, file_path):
+    def _print_grubhub(self, excel, file_path, kind="Grubhub"):
         return self._print_workbook(
-            excel, file_path, kind="Grubhub",
+            excel, file_path, kind=kind,
             sheet_picker=lambda wb: wb.ActiveSheet,
             adjust=lambda ws: ws.UsedRange.Columns.AutoFit(),
         )

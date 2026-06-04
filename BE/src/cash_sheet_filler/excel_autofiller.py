@@ -174,7 +174,7 @@ class ExcelAutofiller:
                 self.ws.cell(1, date_col).value = parser.get("date")
 
             count_col = FILL_COL_MAP.get("count")
-            if count_col:
+            if count_col and parser.get("count") is not None:
                 self.ws.cell(self.row, count_col).value = parser.get("count")
 
             total_sales_col = FILL_COL_MAP.get("total_sales")

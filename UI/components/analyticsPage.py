@@ -52,44 +52,68 @@ matplotlib.use("Agg")
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  PALETTE  — clean, professional, not "startup purple"
+#  PALETTE  — unified Deep-Teal design system (see theme.py)
+#  Local names kept (NAVY/ACCENT/BLUE…) so existing references don't churn.
 # ══════════════════════════════════════════════════════════════════════
-NAVY = "#1B2A4A"
-NAVY_LIGHT = "#2D4A7A"
-SLATE = "#475569"
-BG = "#F8FAFC"
-TEXT_PRIMARY = "#0F172A"
-TEXT_SEC = "#64748B"
-TEXT_MUTED = "#94A3B8"
-CARD_BG = "#FFFFFF"
-BORDER = "#E2E8F0"
-GREEN = "#059669"
-GREEN_BG = "#ECFDF5"
-GREEN_LIGHT = "#D1FAE5"
-RED = "#DC2626"
-RED_BG = "#FEF2F2"
-RED_LIGHT = "#FECACA"
-AMBER = "#D97706"
-AMBER_BG = "#FFFBEB"
-BLUE = "#2563EB"
-BLUE_BG = "#EFF6FF"
-BLUE_LIGHT = "#DBEAFE"
-ACCENT = "#1E40AF"
-ACCENT_LIGHT = "#DBEAFE"
-ACCENT_HOVER = "#1E3A8A"
-FONT = "Segoe UI"
+try:
+    from .theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT,
+        BG as _T_BG, BG_SUBTLE, CARD as _T_CARD, BORDER as _T_BORDER,
+        TEXT as _T_TEXT, TEXT_SEC as _T_TSEC, TEXT_MUTED as _T_TMUT,
+        GREEN as _T_GREEN, GREEN_BG as _T_GREEN_BG, GREEN_LIGHT as _T_GREEN_L,
+        RED as _T_RED, RED_BG as _T_RED_BG, RED_LIGHT as _T_RED_L,
+        AMBER as _T_AMBER, AMBER_BG as _T_AMBER_BG,
+        BLUE_LIGHT as _T_BLUE_L, FONT as _T_FONT,
+        CHART_PALETTE as _T_CHART_PALETTE,
+        money, money_axis_formatter, apply_chart_style,
+    )
+except ImportError:  # flat import fallback
+    from theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT,
+        BG as _T_BG, BG_SUBTLE, CARD as _T_CARD, BORDER as _T_BORDER,
+        TEXT as _T_TEXT, TEXT_SEC as _T_TSEC, TEXT_MUTED as _T_TMUT,
+        GREEN as _T_GREEN, GREEN_BG as _T_GREEN_BG, GREEN_LIGHT as _T_GREEN_L,
+        RED as _T_RED, RED_BG as _T_RED_BG, RED_LIGHT as _T_RED_L,
+        AMBER as _T_AMBER, AMBER_BG as _T_AMBER_BG,
+        BLUE_LIGHT as _T_BLUE_L, FONT as _T_FONT,
+        CHART_PALETTE as _T_CHART_PALETTE,
+        money, money_axis_formatter, apply_chart_style,
+    )
 
-# ── Chart palette: muted, professional, distinguishable ───────────
-CHART_PALETTE = [
-    "#2563EB",  # blue — meal plans
-    "#059669",  # green — campus currency
-    "#DC2626",  # red — credit cards
-    "#D97706",  # amber — other
-    "#7C3AED",  # purple
-    "#0891B2",  # cyan
-    "#BE185D",  # pink
-    "#475569",  # slate
-]
+NAVY = PRIMARY
+NAVY_LIGHT = "#2E7D8F"
+SLATE = _T_TSEC
+BG = _T_BG
+TEXT_PRIMARY = _T_TEXT
+TEXT_SEC = _T_TSEC
+TEXT_MUTED = _T_TMUT
+CARD_BG = _T_CARD
+BORDER = _T_BORDER
+GREEN = _T_GREEN
+GREEN_BG = _T_GREEN_BG
+GREEN_LIGHT = _T_GREEN_L
+RED = _T_RED
+RED_BG = _T_RED_BG
+RED_LIGHT = _T_RED_L
+AMBER = _T_AMBER
+AMBER_BG = _T_AMBER_BG
+BLUE = "#2E7D8F"
+BLUE_BG = PRIMARY_LIGHT
+BLUE_LIGHT = _T_BLUE_L
+ACCENT = PRIMARY
+ACCENT_LIGHT = PRIMARY_LIGHT
+ACCENT_HOVER = PRIMARY_DARK
+FONT = _T_FONT
+
+apply_chart_style()
+
+# ── Chart palette: unified, distinguishable, on-brand ───────────
+CHART_PALETTE = _T_CHART_PALETTE
+
+try:
+    from .icons import get_icon
+except ImportError:  # flat import fallback
+    from icons import get_icon
 
 # ══════════════════════════════════════════════════════════════════════
 #  TENDER CATEGORY GROUPING
@@ -99,27 +123,23 @@ CHART_PALETTE = [
 TENDER_CATEGORIES: dict[str, dict] = {
     "Meal Plans": {
         "keys": ["contract_card", "flex", "transfer", "dining_dollars"],
-        "color": "#2563EB",
-        "bg": "#DBEAFE",
-        "icon": "🍽️",
+        "color": "#1F5563",   # deep teal
+        "bg": "#DCEFF3",
     },
     "Campus Currency": {
         "keys": ["ucash", "ushop", "chartwellsDCB"],
-        "color": "#059669",
-        "bg": "#D1FAE5",
-        "icon": "🏫",
+        "color": "#3E92A3",   # mid teal
+        "bg": "#DBEDF1",
     },
     "Credit Cards": {
         "keys": ["visa", "mc", "amex", "discover"],
-        "color": "#DC2626",
-        "bg": "#FEE2E2",
-        "icon": "💳",
+        "color": "#B7791F",   # amber
+        "bg": "#FBF1DE",
     },
     "Other": {
         "keys": ["coupons"],
-        "color": "#D97706",
-        "bg": "#FEF3C7",
-        "icon": "🎟️",
+        "color": "#6B5B95",   # muted violet
+        "bg": "#E7E3F0",
     },
 }
 
@@ -311,6 +331,7 @@ class _DatePickerBtn(ctk.CTkFrame):
             fg_color=CARD_BG, text_color=TEXT_PRIMARY,
             hover_color=ACCENT_LIGHT, border_width=1, border_color=BORDER,
             font=ctk.CTkFont(family=FONT, size=12),
+            image=get_icon("calendar", 14, TEXT_SEC), compound="left",
             anchor="w", command=self._open, cursor="hand2")
         self._btn.pack()
         self._refresh()
@@ -318,9 +339,9 @@ class _DatePickerBtn(ctk.CTkFrame):
     def _refresh(self):
         if self._date:
             self._btn.configure(
-                text=f"  📅  {self._date.strftime('%b %d, %Y')}")
+                text=f"  {self._date.strftime('%b %d, %Y')}")
         else:
-            self._btn.configure(text=f"  📅  {self._ph}")
+            self._btn.configure(text=f"  {self._ph}")
 
     def _open(self):
         _CalendarPopup(self._btn, self._on_picked, self._date)
@@ -393,7 +414,8 @@ class AnalyticsPage(ctk.CTkFrame):
         bar.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
-            bar, text="  📊  Financial Overview",
+            bar, text="  Financial Overview",
+            image=get_icon("analytics", 20, ACCENT), compound="left",
             font=ctk.CTkFont(family=FONT, size=17, weight="bold"),
             text_color=TEXT_PRIMARY,
         ).grid(row=0, column=0, sticky="w", padx=(14, 0), pady=11)
@@ -553,15 +575,15 @@ class AnalyticsPage(ctk.CTkFrame):
 
         # Row 0: Revenue + Flex tracking
         row0 = [
-            ("💰", "Total Revenue",  "$0", ACCENT, BLUE_BG,   "label"),
-            ("🎯", "Flex Total",     "$0", SLATE,  "#F1F5F9", "input"),
-            ("⚖️", "Flex Balance",   "$0", GREEN,  GREEN_BG,  "computed"),
+            ("revenue", "Total Revenue",  "$0", ACCENT, BLUE_BG,   "label"),
+            ("target",  "Flex Total",     "$0", SLATE,  BG_SUBTLE, "input"),
+            ("scale",   "Flex Balance",   "$0", GREEN,  GREEN_BG,  "computed"),
         ]
         # Row 1: Operations
         row1 = [
-            ("📊", "Daily Average",  "$0", GREEN, GREEN_BG,   "label"),
-            ("🍱", "Meals Served",   "0",  AMBER, AMBER_BG,   "label"),
-            ("🏆", "Top Location",   "—",  SLATE, "#F1F5F9",  "label"),
+            ("analytics", "Daily Average",  "$0", GREEN, GREEN_BG,   "label"),
+            ("meals",     "Meals Served",   "0",  AMBER, AMBER_BG,   "label"),
+            ("trophy",    "Top Location",   "—",  SLATE, BG_SUBTLE,  "label"),
         ]
 
         for r, row_meta in enumerate([row0, row1]):
@@ -593,7 +615,7 @@ class AnalyticsPage(ctk.CTkFrame):
                             corner_radius=8, fg_color=icon_bg)
         badge.pack(side="left")
         badge.pack_propagate(False)
-        ctk.CTkLabel(badge, text=icon, font=ctk.CTkFont(size=14)).place(
+        ctk.CTkLabel(badge, text="", image=get_icon(icon, 17, accent)).place(
             relx=0.5, rely=0.5, anchor="center")
         ctk.CTkLabel(top, text=label,
                     font=ctk.CTkFont(family=FONT, size=11),
@@ -950,16 +972,17 @@ class AnalyticsPage(ctk.CTkFrame):
         self._chart_canvases.append(canvas)
 
     def _style_ax(self, ax, dollar_y=False):
-        ax.set_facecolor("#FAFBFC")
+        ax.set_facecolor(CARD_BG)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
         for sp in ("left", "bottom"):
             ax.spines[sp].set_color(BORDER)
         ax.tick_params(colors=TEXT_SEC, labelsize=9)
         if dollar_y:
-            ax.yaxis.set_major_formatter(
-                mticker.FuncFormatter(
-                    lambda x, _: f"${x:,.2f}" if x >= 1 else f"${x:,.2f}"))
+            # Compact dollars ($1.2k) — no more ".00" cent-noise on every tick,
+            # and cap the number of ticks so labels never crowd.
+            ax.yaxis.set_major_formatter(money_axis_formatter())
+            ax.yaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune="lower"))
 
     # ══════════════════════════════════════════════════════════════
     #  TAB 1 — OVERVIEW: daily revenue bars + category breakdown
@@ -970,7 +993,8 @@ class AnalyticsPage(ctk.CTkFrame):
             return
 
         # ── Daily revenue bar chart ──────────────────────────────
-        fig = Figure(figsize=(10.5, 4.0), dpi=100, facecolor=CARD_BG)
+        fig = Figure(figsize=(10.5, 4.0), dpi=100, facecolor=CARD_BG,
+                     constrained_layout=True)
         ax = fig.add_subplot(111)
         self._style_ax(ax, dollar_y=True)
 
@@ -985,39 +1009,51 @@ class AnalyticsPage(ctk.CTkFrame):
                 short.append(str(d))
 
         x_pos = list(range(len(short)))
+        n = len(sales)
+        max_sale = max(sales) if sales else 1
 
-        # Color bars: green if above average, muted if below
-        avg_val = sum(sales) / len(sales) if sales else 0
-        colors = [ACCENT if v >= avg_val else "#CBD5E1" for v in sales]
+        # Color bars: teal if above average, muted slate if below
+        avg_val = sum(sales) / n if n else 0
+        colors = [ACCENT if v >= avg_val else "#C3CDD4" for v in sales]
 
         ax.bar(x_pos, sales, color=colors, edgecolor="white",
-               linewidth=0.5, width=0.6, zorder=3)
+               linewidth=0.5, width=0.72, zorder=3)
 
-        # Average line
-        ax.axhline(y=avg_val, color=AMBER, linewidth=1.5, linestyle="--",
-                   alpha=0.7, zorder=4)
-        ax.text(len(x_pos) - 0.5, avg_val + max(sales) * 0.02,
-                f"Avg ${avg_val:,.2f}", fontsize=9, color=AMBER,
-                fontweight="bold", ha="right")
+        # Average line + a readable label pinned at the left (white bbox so it
+        # never sits illegibly on top of a bar).
+        ax.axhline(y=avg_val, color=AMBER, linewidth=1.4, linestyle="--",
+                   alpha=0.85, zorder=4)
+        ax.text(-0.35, avg_val, f"Avg {money(avg_val)}",
+                fontsize=8.5, color=AMBER, fontweight="bold",
+                ha="left", va="bottom", zorder=6,
+                bbox=dict(facecolor=CARD_BG, edgecolor="none", pad=1.5))
 
-        # Value labels on bars (only if <= 14 bars)
-        if len(sales) <= 14:
-            max_sale = max(sales) if sales else 1
+        # Value labels only when there's room (≤10 bars), compact format.
+        if n <= 10:
             for xi, val in zip(x_pos, sales):
-                ax.text(xi, val + max_sale * 0.02, f"${val:,.2f}",
+                ax.text(xi, val + max_sale * 0.02, money(val),
                         ha="center", va="bottom", fontsize=8,
                         color=TEXT_SEC, fontweight="bold")
 
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(short)
-        ax.set_title("Daily Revenue", fontsize=13, fontweight="bold",
-                     color=TEXT_PRIMARY, pad=12, loc="left")
-        ax.grid(axis="y", color=BORDER, linewidth=0.5, alpha=0.5)
+        # Thin out x labels when crowded so they never overlap.
+        if n > 24:
+            step = (n // 16) + 1
+            keep = set(range(0, n, step)) | {n - 1}
+            ax.set_xticks([i for i in x_pos if i in keep])
+            ax.set_xticklabels([short[i] for i in x_pos if i in keep],
+                               rotation=45, ha="right")
+        else:
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(
+                short, rotation=45 if n > 10 else 0,
+                ha="right" if n > 10 else "center")
+
+        ax.set_title("Daily Revenue", loc="left", pad=10)
+        ax.grid(axis="y")
+        ax.set_axisbelow(True)
+        ax.margins(x=0.01)
         if sales:
-            ax.set_ylim(top=max(sales) * 1.15)
-        if len(short) > 10:
-            ax.tick_params(axis="x", rotation=45)
-        fig.tight_layout()
+            ax.set_ylim(top=max_sale * 1.22)
         self._embed(fig)
 
         # ── Category breakdown mini-bars ─────────────────────────
@@ -1050,16 +1086,22 @@ class AnalyticsPage(ctk.CTkFrame):
             row.pack(fill="x", padx=16, pady=2)
             row.grid_columnconfigure(1, weight=1)
 
-            # Label
+            # Label — color swatch + name (replaces emoji icon)
+            label_cell = ctk.CTkFrame(row, fg_color="transparent", width=160)
+            label_cell.grid(row=0, column=0, sticky="w")
+            swatch = ctk.CTkFrame(label_cell, width=12, height=12,
+                                  corner_radius=3, fg_color=cat_info["color"])
+            swatch.pack(side="left", padx=(0, 8))
+            swatch.pack_propagate(False)
             ctk.CTkLabel(
-                row, text=f"{cat_info['icon']}  {cat_name}",
+                label_cell, text=cat_name,
                 font=ctk.CTkFont(family=FONT, size=12),
-                text_color=TEXT_PRIMARY, width=160, anchor="w"
-            ).grid(row=0, column=0, sticky="w")
+                text_color=TEXT_PRIMARY, anchor="w"
+            ).pack(side="left")
 
             # Progress bar background
             bar_frame = ctk.CTkFrame(
-                row, fg_color="#F1F5F9", corner_radius=4, height=20)
+                row, fg_color=BG, corner_radius=4, height=20)
             bar_frame.grid(row=0, column=1, sticky="ew", padx=(8, 8))
             bar_frame.grid_propagate(False)
 
@@ -1072,7 +1114,7 @@ class AnalyticsPage(ctk.CTkFrame):
 
             # Value
             ctk.CTkLabel(
-                row, text=f"${val:,.2f}  ({pct:.1f}%)",
+                row, text=f"{money(val, compact=False)}  ({pct:.1f}%)",
                 font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
                 text_color=TEXT_SEC, width=140, anchor="e"
             ).grid(row=0, column=2, sticky="e")
@@ -1093,8 +1135,9 @@ class AnalyticsPage(ctk.CTkFrame):
             return
 
         n = len(by_loc)
-        fig_h = max(4.0, n * 0.7 + 1.5)
-        fig = Figure(figsize=(10.5, min(fig_h, 9)), dpi=100, facecolor=CARD_BG)
+        fig_h = max(4.0, n * 0.62 + 1.4)
+        fig = Figure(figsize=(10.5, min(fig_h, 9)), dpi=100, facecolor=CARD_BG,
+                     constrained_layout=True)
         ax = fig.add_subplot(111)
         self._style_ax(ax)
 
@@ -1102,39 +1145,41 @@ class AnalyticsPage(ctk.CTkFrame):
         sales = [float(d["total_sales"]) for d in by_loc]
         meals = [int(d.get("meal_count", 0)) for d in by_loc]
 
-        # Gradient color: top = darkest, bottom = lightest
+        # Teal gradient: top (highest) darkest → lighter going down
+        import matplotlib.colors as mcolors
+        c_top = mcolors.to_rgb(PRIMARY)
+        c_bot = mcolors.to_rgb("#7FB3BF")
         clrs = []
         for i in range(n):
-            ratio = i / max(n - 1, 1)
-            r = int(37 + ratio * 150)
-            g = int(99 + ratio * 120)
-            b = int(235 - ratio * 50)
-            clrs.append(f"#{r:02x}{g:02x}{b:02x}")
+            t = i / max(n - 1, 1)
+            clrs.append(tuple(c_top[k] + (c_bot[k] - c_top[k]) * t
+                              for k in range(3)))
 
-        bars = ax.barh(locs, sales, color=clrs, edgecolor="white",
-                       linewidth=0.5, height=0.55)
+        y_pos = list(range(n))
+        bars = ax.barh(y_pos, sales, color=clrs, edgecolor="white",
+                       linewidth=0.5, height=0.62, zorder=3)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(locs)
         max_sale = max(sales) if sales else 1
 
-        # Labels: sales amount + meal count
+        # Labels: compact sales + meal count, placed just past each bar
         for bar, val, mc in zip(bars, sales, meals):
-            label_x = bar.get_width() + max_sale * 0.015
-            y_center = bar.get_y() + bar.get_height() / 2
-            ax.text(label_x, y_center,
-                    f"${val:,.2f}   ({mc:,} meals)",
-                    ha="left", va="center", fontsize=9,
+            ax.text(bar.get_width() + max_sale * 0.015,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{money(val)}   ({mc:,} meals)",
+                    ha="left", va="center", fontsize=8.5,
                     color=TEXT_SEC, fontweight="bold")
 
-        ax.set_title("Revenue by Location (ranked)", fontsize=13,
-                     fontweight="bold", color=TEXT_PRIMARY, pad=12, loc="left")
+        ax.set_title("Revenue by Location (ranked)", loc="left", pad=10)
         ax.invert_yaxis()
         ax.tick_params(axis="y", labelsize=10, labelcolor=TEXT_PRIMARY)
-        ax.xaxis.set_major_formatter(
-            mticker.FuncFormatter(lambda x, _: f"${x:,.2f}"))
-        ax.grid(axis="x", color=BORDER, linewidth=0.5, alpha=0.5)
+        ax.xaxis.set_major_formatter(money_axis_formatter())
+        ax.xaxis.set_major_locator(mticker.MaxNLocator(nbins=6, prune="lower"))
+        ax.grid(axis="x")
+        ax.set_axisbelow(True)
+        # Generous right headroom so the "$x ( y meals)" labels never clip.
         if max_sale > 0:
-            ax.set_xlim(right=max_sale * 1.30)
-        fig.tight_layout()
-        fig.subplots_adjust(left=0.25)
+            ax.set_xlim(right=max_sale * 1.42)
         self._embed(fig)
 
     # ══════════════════════════════════════════════════════════════
@@ -1142,7 +1187,8 @@ class AnalyticsPage(ctk.CTkFrame):
     # ══════════════════════════════════════════════════════════════
     def _chart_payment_mix(self):
         s = self._summary
-        fig = Figure(figsize=(10.5, 5.0), dpi=100, facecolor=CARD_BG)
+        fig = Figure(figsize=(10.5, 5.0), dpi=100, facecolor=CARD_BG,
+                     constrained_layout=True)
         gs = fig.add_gridspec(1, 2, width_ratios=[3, 2], wspace=0.05)
         ax = fig.add_subplot(gs[0, 0])
         ax_leg = fig.add_subplot(gs[0, 1])
@@ -1172,26 +1218,27 @@ class AnalyticsPage(ctk.CTkFrame):
                 t.set_color("white")
                 t.set_fontweight("bold")
 
-            ax.text(0, 0.04, f"${total:,.2f}", ha="center", va="center",
-                    fontsize=18, fontweight="bold", color=TEXT_PRIMARY)
-            ax.text(0, -0.12, "Total Revenue", ha="center", va="center",
+            ax.text(0, 0.06, money(total), ha="center", va="center",
+                    fontsize=19, fontweight="bold", color=TEXT_PRIMARY)
+            ax.text(0, -0.16, "Total Revenue", ha="center", va="center",
                     fontsize=9, color=TEXT_SEC)
+            ax.set(aspect="equal")
 
             # Legend with category breakdown
             legend_lines = []
             for lbl, sz in zip(labels, sizes):
                 pct = sz / total * 100
-                legend_lines.append(f"{lbl}  —  ${sz:,.2f}  ({pct:.1f}%)")
+                legend_lines.append(
+                    f"{lbl}  —  {money(sz, compact=False)}  ({pct:.1f}%)")
 
             handles = [ax_leg.barh(0, 0, color=c)[0] for c in clrs]
             ax_leg.legend(handles, legend_lines, loc="center left",
                           bbox_to_anchor=(0, 0.5), fontsize=10,
-                          frameon=False, labelspacing=1.4,
+                          frameon=False, labelspacing=1.6,
                           handlelength=1.2, handletextpad=0.8)
 
         fig.suptitle("Payment Category Mix", fontsize=13, fontweight="bold",
-                     color=TEXT_PRIMARY, y=0.97)
-        fig.tight_layout(rect=[0, 0, 1, 0.93])
+                     color=TEXT_PRIMARY)
         self._embed(fig)
 
         # ── Individual tender detail below the donut ─────────────
@@ -1221,7 +1268,7 @@ class AnalyticsPage(ctk.CTkFrame):
                 card, fg_color=cat_info["color"], corner_radius=6, height=28)
             hdr.pack(fill="x", padx=16, pady=(8, 2))
             hdr.pack_propagate(False)
-            ctk.CTkLabel(hdr, text=f"  {cat_info['icon']}  {cat_name}  —  ${cat_total:,.2f}",
+            ctk.CTkLabel(hdr, text=f"  {cat_name}  —  {money(cat_total, compact=False)}",
                          font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
                          text_color="white").pack(side="left", padx=8)
 
@@ -1258,11 +1305,6 @@ class AnalyticsPage(ctk.CTkFrame):
                          text_color=TEXT_MUTED).pack(pady=60)
             return
 
-        # ── Revenue trend with prior period comparison ───────────
-        fig = Figure(figsize=(10.5, 4.0), dpi=100, facecolor=CARD_BG)
-        ax = fig.add_subplot(111)
-        self._style_ax(ax, dollar_y=True)
-
         dates = []
         points = []
         for d in daily:
@@ -1279,53 +1321,70 @@ class AnalyticsPage(ctk.CTkFrame):
                          text_color=TEXT_MUTED).pack(pady=60)
             return
 
+        # Show point markers only when the series is short enough to stay clean.
+        marker = "o" if len(points) <= 20 else None
+
+        def _date_axis(ax):
+            loc = mdates.AutoDateLocator(minticks=4, maxticks=9)
+            ax.xaxis.set_major_locator(loc)
+            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
+
+        # ── Revenue trend with prior period comparison ───────────
+        fig = Figure(figsize=(10.5, 4.0), dpi=100, facecolor=CARD_BG,
+                     constrained_layout=True)
+        ax = fig.add_subplot(111)
+        self._style_ax(ax, dollar_y=True)
+
         sales = [float(d["total_sales"]) for d in points]
-        ax.plot(dates, sales, color=ACCENT, linewidth=2.5, marker="o",
+        ax.plot(dates, sales, color=ACCENT, linewidth=2.5, marker=marker,
                 markersize=5, label="Current Period", zorder=4)
         ax.fill_between(dates, sales, alpha=0.08, color=ACCENT)
 
         # Prior period as ghost line
         if self._prev_daily and len(self._prev_daily) >= 2:
             prev_sales = [float(d["total_sales"]) for d in self._prev_daily]
-            # Align to same x-axis length
             if len(prev_sales) == len(dates):
-                ax.plot(dates, prev_sales, color="#CBD5E1", linewidth=1.5,
+                ax.plot(dates, prev_sales, color="#B9C4CC", linewidth=1.5,
                         linestyle="--", label="Prior Period", zorder=3)
             elif len(prev_sales) > 0:
-                # Resample to match current period length
                 x_prev = list(range(len(prev_sales)))
                 x_curr = [i * (len(prev_sales) - 1) / max(len(dates) - 1, 1)
                           for i in range(len(dates))]
                 resampled = np.interp(x_curr, x_prev, prev_sales)
-                ax.plot(dates, resampled, color="#CBD5E1", linewidth=1.5,
+                ax.plot(dates, resampled, color="#B9C4CC", linewidth=1.5,
                         linestyle="--", label="Prior Period", zorder=3)
 
-        ax.set_title("Revenue Trend", fontsize=13, fontweight="bold",
-                     color=TEXT_PRIMARY, pad=12, loc="left")
-        ax.legend(fontsize=9, frameon=False, loc="upper right")
-        ax.grid(axis="y", color=BORDER, linewidth=0.5, alpha=0.5)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-        fig.tight_layout()
+        ax.set_title("Revenue Trend", loc="left", pad=10)
+        # Legend above the plot (top-right) so it never overlaps the line.
+        ax.legend(loc="lower right", bbox_to_anchor=(1, 1.0), ncol=2,
+                  frameon=False, fontsize=9)
+        ax.grid(axis="y")
+        ax.set_axisbelow(True)
+        _date_axis(ax)
         self._embed(fig)
 
         # ── Category trend lines (the fix for the rainbow brick) ─
-        fig2 = Figure(figsize=(10.5, 4.5), dpi=100, facecolor=CARD_BG)
+        fig2 = Figure(figsize=(10.5, 4.5), dpi=100, facecolor=CARD_BG,
+                      constrained_layout=True)
         ax2 = fig2.add_subplot(111)
         self._style_ax(ax2, dollar_y=True)
 
+        n_series = 0
         for cat_name, cat_info in TENDER_CATEGORIES.items():
             vals = [_sum_category(d, cat_info["keys"]) for d in points]
             if any(v > 0 for v in vals):
                 ax2.plot(dates, vals, color=cat_info["color"], linewidth=2,
-                         marker="o", markersize=4, label=cat_name)
+                         marker=marker, markersize=4, label=cat_name)
+                n_series += 1
 
-        ax2.set_title("Trend by Payment Category", fontsize=13,
-                      fontweight="bold", color=TEXT_PRIMARY, pad=12, loc="left")
-        ax2.legend(fontsize=10, frameon=False, loc="upper right",
-                   ncol=2, columnspacing=1.5)
-        ax2.grid(axis="y", color=BORDER, linewidth=0.5, alpha=0.5)
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter("%m/%d"))
-        fig2.tight_layout()
+        ax2.set_title("Trend by Payment Category", loc="left", pad=10)
+        if n_series:
+            ax2.legend(loc="lower right", bbox_to_anchor=(1, 1.0),
+                       ncol=min(n_series, 4), columnspacing=1.5,
+                       frameon=False, fontsize=9.5)
+        ax2.grid(axis="y")
+        ax2.set_axisbelow(True)
+        _date_axis(ax2)
         self._embed(fig2)
 
     # ══════════════════════════════════════════════════════════════
@@ -1380,7 +1439,7 @@ class AnalyticsPage(ctk.CTkFrame):
 
             # Category header row
             for col, (txt, anchor) in enumerate([
-                (f"{cat_info['icon']}  {cat_name}", "w"),
+                (f"  {cat_name}", "w"),
                 (f"${cat_total:,.2f}", "e"),
                 (f"${cat_avg:,.2f}", "e"),
                 (f"{cat_pct:.1f}%", "e"),
