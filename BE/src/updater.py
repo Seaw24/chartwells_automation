@@ -67,7 +67,7 @@ GITHUB_REPO = "Seaw24/chartwells_automation"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("UPDATER_TOKEN", "")
 
 # Current version — bump this each time you build a new release
-CURRENT_VERSION = "1.1.1"
+CURRENT_VERSION = "1.1.2"
 
 
 # ═══════════════════════════════════════════════════════════════

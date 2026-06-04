@@ -1,27 +1,32 @@
 import customtkinter as ctk
 
-PURPLE = "#6C5CE7"
-PURPLE_DARK = "#5B4CD6"
-PURPLE_LIGHT = "#EDE9FF"
-PURPLE_SUBTLE = "#F4F1FF"
-BG = "#F5F5F7"
-TEXT = "#1a1a1a"
-TEXT_SEC = "#8E8E93"
-TEXT_MUTED = "#AEAEB2"
-CARD = "#FFFFFF"
-BORDER = "#E5E5EA"
-GREEN = "#34C759"
-GREEN_BG = "#E8F9EE"
-RED = "#FF3B30"
-RED_BG = "#FFE5E3"
-ORANGE = "#FF9500"
-ORANGE_BG = "#FFF3E0"
-FONT = "Arial"
+# Unified design system — see theme.py. Names kept (PURPLE, ORANGE…) so the
+# many existing references don't need touching; values now point at the
+# single Deep-Teal palette shared across every screen.
+try:
+    from .theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT, PRIMARY_SUBTLE,
+        BG, TEXT, TEXT_SEC, TEXT_MUTED, CARD, BORDER,
+        GREEN, GREEN_BG, RED, RED_BG, AMBER, AMBER_BG, FONT,
+    )
+except ImportError:  # flat import fallback
+    from theme import (
+        PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT, PRIMARY_SUBTLE,
+        BG, TEXT, TEXT_SEC, TEXT_MUTED, CARD, BORDER,
+        GREEN, GREEN_BG, RED, RED_BG, AMBER, AMBER_BG, FONT,
+    )
+
+PURPLE = PRIMARY
+PURPLE_DARK = PRIMARY_DARK
+PURPLE_LIGHT = PRIMARY_LIGHT
+PURPLE_SUBTLE = PRIMARY_SUBTLE
+ORANGE = AMBER
+ORANGE_BG = AMBER_BG
 
 
 class Card(ctk.CTkFrame):
     def __init__(self, parent, **kw):
-        super().__init__(parent, fg_color=CARD, corner_radius=12,
+        super().__init__(parent, fg_color=CARD, corner_radius=8,
                          border_width=1, border_color=BORDER, **kw)
 
 
@@ -39,7 +44,7 @@ def section_label(parent, text, grid_pos=None):
 
 def add_button(parent, add_cb):
     ctk.CTkButton(
-        parent, text="＋ Add", width=60, height=26, corner_radius=6,
+        parent, text="+ Add", width=60, height=26, corner_radius=6,
         fg_color=GREEN_BG, text_color=GREEN, hover_color="#D4F5DD",
         font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
         command=add_cb, cursor="hand2").pack(side="right")
