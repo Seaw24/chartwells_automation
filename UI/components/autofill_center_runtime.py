@@ -116,7 +116,7 @@ class AutoFillRuntimeController:
         if hasattr(self.view, '_cs_stop_event'):
             self.view._cs_stop_event.set()
         self.view._cs_run_btn.configure(
-            state="disabled", text="🛑  Stopping...")
+            state="disabled", text="Stopping...")
 
     def _run_cash_sheet_autofill(self):
         casheet_dir = self.view._cs_folder1_entry.get().strip()
@@ -144,19 +144,23 @@ class AutoFillRuntimeController:
                     "Printer Settings",
                     "Copies must be at least 1.")
                 return
+            color_choice = self.view._print_color_var.get().strip().lower()
+            orientation = self.view._print_orientation_var.get().strip().lower()
             print_settings = {
                 "printer_name": printer_name,
-                "color_mode": self.view._print_color_var.get(),
+                "color_mode": (
+                    "bw" if "black" in color_choice or color_choice == "bw"
+                    else "color"),
                 "paper_size": self.view._print_paper_var.get(),
                 "duplex": self.view._print_duplex_var.get() == 1,
                 "copies": copies,
-                "orientation": self.view._print_orientation_var.get(),
+                "orientation": orientation,
                 "collate": self.view._print_collate_var.get() == 1,
             }
 
         self.view._cs_stop_event = threading.Event()
         self.view._cs_run_btn.configure(
-            state="normal", text="🛑  Stop Autofill",
+            state="normal", text="Stop Autofill",
             fg_color="#D9534F", hover_color="#C9302C",
             command=self._stop_cash_sheet_autofill)
         self._clear_log(self.view._cs_log)
@@ -189,7 +193,7 @@ class AutoFillRuntimeController:
     def _on_cash_sheet_done(self, tracker):
         # Restore the Run button regardless of how the run ended.
         self.view._cs_run_btn.configure(
-            state="normal", text="🚀  Run Cash Sheet Autofill",
+            state="normal", text="Run Cash Sheet Autofill",
             fg_color=PURPLE, hover_color=PURPLE_DARK,
             command=self._run_cash_sheet_autofill)
         if tracker is None:
@@ -211,7 +215,7 @@ class AutoFillRuntimeController:
         if hasattr(self.view, '_tb_stop_event'):
             self.view._tb_stop_event.set()
         self.view._tb_run_btn.configure(
-            state="disabled", text="🛑  Stopping...")
+            state="disabled", text="Stopping...")
 
     def _run_tender_autofill(self):
         if not _HAS_TENDER:
@@ -233,7 +237,7 @@ class AutoFillRuntimeController:
 
         self.view._tb_stop_event = threading.Event()
         self.view._tb_run_btn.configure(
-            state="normal", text="🛑  Stop Autofill",
+            state="normal", text="Stop Autofill",
             fg_color="#D9534F", hover_color="#C9302C",
             command=self._stop_tender_autofill)
         self._clear_log(self.view._tb_log)
@@ -262,7 +266,7 @@ class AutoFillRuntimeController:
 
     def _on_tender_done(self, tracker):
         self.view._tb_run_btn.configure(
-            state="normal", text="🚀  Run Tender Breakdown Autofill",
+            state="normal", text="Run Tender Breakdown Autofill",
             fg_color=PURPLE, hover_color=PURPLE_DARK,
             command=self._run_tender_autofill)
         if tracker is None:
@@ -350,14 +354,21 @@ class AutoFillRuntimeController:
             self.view._save_tender_config()
 
     def _toggle_printer_dropdown(self):
-        if self.view._cs_auto_print.get() == 1:
-            self.view._printer_frame.grid()
-        else:
-            self.view._printer_frame.grid_remove()
+        """Enable the 'Print options' button + summary when auto-print is on.
+
+        The full printer UI now lives in a popup dialog (see
+        AutoFillCenter._open_print_dialog), so toggling no longer grows the
+        Run Setup card — the Result Log keeps its full height.
+        """
+        enabled = self.view._cs_auto_print.get() == 1
+        self.view._print_options_btn.configure(
+            state="normal" if enabled else "disabled")
+        self.view._refresh_print_summary()
 
     def _refresh_printers(self):
         printers = ExcelPrinter.get_available_printers()
         default = ExcelPrinter.get_default_printer() or "System Default"
-        self.view._printer_dropdown.configure(
-            values=["System Default"] + printers)
+        if getattr(self.view, "_printer_dropdown", None) is not None:
+            self.view._printer_dropdown.configure(
+                values=["System Default"] + printers)
         self.view._printer_var.set(default)

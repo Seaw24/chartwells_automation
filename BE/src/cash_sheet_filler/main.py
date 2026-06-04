@@ -23,6 +23,7 @@ from ..db.tendersdb_manager import TendersDBManager
 from .infor_parser import InforParser
 from .tavlo_parser import TavloParser
 from .grubhub_parser import GrubhubParser
+from .grubhub_order_count_parser import GrubhubOrderCountParser
 from .excel_autofiller import ExcelAutofiller
 from .config import (
     REPORTS_CASHSHEET_MAP,
@@ -165,9 +166,10 @@ class CashSheetAutofillEngine:
         Process all reports in ``reports_dir`` and fill the matching cash sheets.
 
         File-type detection by name:
-            ``Operations Report*.csv``        → Infor (1 venue per file)
-            ``TransactionDetailbyVenue*.csv`` → Grubhub (many venues per file)
-            ``*.xls``                         → Tavlo  (1 venue per file)
+            ``Operations Report*.csv``        -> Infor (1 venue per file)
+            ``TransactionDetailbyVenue*.csv`` -> Grubhub tender detail
+            ``SalesataGlance*.csv``           -> Grubhub order counts
+            ``*.xls``                         -> Tavlo  (1 venue per file)
 
         Returns the populated ``ProcessingTracker`` so the caller can read
         ``tracker.successful``, ``tracker.failed``, ``tracker.warnings``.
@@ -186,17 +188,28 @@ class CashSheetAutofillEngine:
             return self.tracker
 
         # ── 2. Bucket files by source type ─────────────────────────────────
-        infor_files, tavlo_files, grubhub_files = [], [], []
+        infor_files, tavlo_files = [], []
+        grubhub_files, grubhub_order_count_files = [], []
         for name in all_report_files:
             if name.lower().endswith(".csv"):
                 if name.startswith("Operations Report"):
                     infor_files.append(name)
                 elif name.startswith("TransactionDetailbyVenue"):
                     grubhub_files.append(name)
+                elif self._is_grubhub_order_count_file(name):
+                    grubhub_order_count_files.append(name)
             elif name.lower().endswith(".xls"):
                 tavlo_files.append(name)
 
-        total = len(infor_files) + len(tavlo_files) + len(grubhub_files)
+        infor_files.sort()
+        tavlo_files.sort()
+        grubhub_files.sort()
+        grubhub_order_count_files.sort()
+
+        total = (
+            len(infor_files) + len(tavlo_files) + len(grubhub_files)
+            + len(grubhub_order_count_files)
+        )
         if total == 0:
             self.tracker.log("No report files found.")
             return self.tracker
@@ -206,7 +219,8 @@ class CashSheetAutofillEngine:
             f"Found {total} file(s):  "
             f"{len(infor_files)} Infor · "
             f"{len(tavlo_files)} Tavlo · "
-            f"{len(grubhub_files)} Grubhub"
+            f"{len(grubhub_files)} Grubhub tender · "
+            f"{len(grubhub_order_count_files)} Grubhub count"
         )
 
         # ── 3. Process each bucket. Stop early if the user pressed Stop. ──
@@ -223,27 +237,40 @@ class CashSheetAutofillEngine:
             path = os.path.join(self.reports_dir, name)
             self.process_single_report(TavloParser(path, self.tracker), name)
 
-        # Grubhub: one file contains many venues × many dates.
+        grubhub_order_counts = self._load_grubhub_order_counts(
+            grubhub_order_count_files)
+        if grubhub_files and not grubhub_order_counts:
+            self.tracker.warning(
+                "No Sales-at-a-Glance order-count file found; "
+                "Grubhub count cells will be left unchanged.")
+
+        # Grubhub: one tender file contains many venues x many dates.
         for name in grubhub_files:
             if self._stopped("Grubhub"):
                 return self.tracker
             path = os.path.join(self.reports_dir, name)
-            self.process_grubhub(GrubhubParser(path, self.tracker), path)
+            self.process_grubhub(
+                GrubhubParser(path, self.tracker), path, grubhub_order_counts)
 
         # ── 4. Final summary block ─────────────────────────────────────────
         self.tracker.print_summary()
 
-        # Print reports then cash sheets if enabled
+        # Print reports then cash sheets if enabled.
         if self.auto_print and self.filled_days_by_file:
             from ..printer import ExcelPrinter
             printer = ExcelPrinter(
-            self.printer_name,
-            self.tracker,
-            settings=self.print_settings,
-        )
-        printer.print_all(self.reports_dir,
-                        self.casheet_dir, self.filled_days_by_file, self.printable_reports,)
-
+                self.printer_name,
+                self.tracker,
+                settings=self.print_settings,
+            )
+            printer.print_all(
+                self.reports_dir,
+                self.casheet_dir,
+                self.filled_days_by_file,
+                self.printable_reports,
+            )
+        elif self.auto_print:
+            self.tracker.log("Auto-print skipped: no filled cash sheets.")
 
         return self.tracker
 
@@ -257,6 +284,41 @@ class CashSheetAutofillEngine:
             self.tracker.log(f"Stopped during {stage} processing.")
             return True
         return False
+
+    @staticmethod
+    def _is_grubhub_order_count_file(filename):
+        normalized = "".join(ch for ch in filename.lower() if ch.isalnum())
+        return normalized.startswith("salesataglance")
+
+    def _load_grubhub_order_counts(self, filenames):
+        """Parse and merge all Grubhub Sales-at-a-Glance count files."""
+        merged = None
+        for name in filenames:
+            if self._stopped("Grubhub order-count"):
+                return merged
+
+            path = os.path.join(self.reports_dir, name)
+            self.tracker.section(f"Grubhub order counts: {name}")
+            parser = GrubhubOrderCountParser(path, self.tracker)
+            if not parser.parse(self.stop_event):
+                self.tracker.add_failure(
+                    "Grubhub order counts", name, "Parse failed")
+                continue
+
+            if parser.has_data():
+                self.printable_reports.add(name)
+            if merged is None:
+                merged = parser
+            else:
+                merged.merge_from(parser)
+
+        if merged:
+            unmapped = merged.get_unmapped_venues()
+            if unmapped:
+                self.tracker.warning(
+                    "Unmapped Grubhub order-count venues: "
+                    f"{', '.join(sorted(unmapped))}")
+        return merged
 
     def _get_weekday_name(self, date_str):
         """Convert a date string (e.g. MM/DD/YYYY) to its weekday name."""
@@ -275,7 +337,7 @@ class CashSheetAutofillEngine:
             return False
         if data.get("total_sales", 0):
             return True
-        if data.get("count", 0):
+        if data.get("count") or 0:
             return True
         if any(data.get("tenders", {}).values()):
             return True
@@ -343,7 +405,7 @@ class CashSheetAutofillEngine:
             location=location_in_db,
             total_sales=data_dict.get("total_sales", 0.0),
             tax=data_dict.get("tax", 0.0),
-            meal_count=data_dict.get("count", 0),
+            meal_count=data_dict.get("count") or 0,
             tenders=data_dict.get("tenders", {}),
             source=source,
         )
@@ -432,7 +494,11 @@ class CashSheetAutofillEngine:
             "discounts": 0.0,
         }
         for d in data_list:
-            merged["count"] += d.get("count", 0)
+            count = d.get("count")
+            if count is None:
+                merged["count"] = None
+            elif merged["count"] is not None:
+                merged["count"] += count
             merged["total_sales"] += d.get("total_sales", 0.0)
             merged["tax"] += d.get("tax", 0.0)
             merged["discounts"] += d.get("discounts", 0.0)
@@ -440,7 +506,7 @@ class CashSheetAutofillEngine:
                 merged["tenders"][k] = merged["tenders"].get(k, 0.0) + v
         return merged
 
-    def process_grubhub(self, parser, grubhub_path):
+    def process_grubhub(self, parser, grubhub_path, order_counts=None):
         """
         Parse a Grubhub CSV (which contains many venues × many dates) and
         fill the matching cash sheet row for each (date, venue) combination.
@@ -456,6 +522,7 @@ class CashSheetAutofillEngine:
         if not parser.get_dates():
             self.tracker.detail("No Grubhub data found in file.")
             return
+        self.printable_reports.add(grubhub_filename)
 
         # Iterate one date at a time. Within each date we group venues that
         # share a cash sheet row so they're filled in a single pass.
@@ -471,7 +538,7 @@ class CashSheetAutofillEngine:
                 f"{grub_date} ({weekday}) — {len(venues)} venue(s)")
 
             date_groups = self._group_grubhub_venues(
-                grub_date, venues, parser, grubhub_filename)
+                grub_date, venues, parser, grubhub_filename, order_counts)
 
             for (casheet_path, loc_in_casheet, loc_in_db), grp in date_groups.items():
                 if self._stopped("Grubhub"):
@@ -488,7 +555,8 @@ class CashSheetAutofillEngine:
         if unmapped_t:
             self.tracker.warning(f"Unmapped tenders: {', '.join(unmapped_t)}")
 
-    def _group_grubhub_venues(self, grub_date, venues, parser, grubhub_filename):
+    def _group_grubhub_venues(self, grub_date, venues, parser,
+                              grubhub_filename, order_counts=None):
         """
         Build a {(casheet_path, loc_in_casheet, loc_in_db): {venues, data_list}}
         map. Multiple Grubhub venues can land on the same cash sheet row — for
@@ -513,11 +581,20 @@ class CashSheetAutofillEngine:
             casheet_path = os.path.join(self.casheet_dir, casheet_file)
             data = parser.get_data_dict(grub_date, venue)
             data["date"] = grub_date
+            data["count"] = (
+                order_counts.get_count(grub_date, venue)
+                if order_counts else None
+            )
 
             key = (casheet_path, loc_in_casheet, loc_in_db)
-            grp = date_groups.setdefault(key, {"venues": [], "data_list": []})
+            grp = date_groups.setdefault(
+                key,
+                {"venues": [], "data_list": [], "missing_counts": []},
+            )
             grp["venues"].append(venue)
             grp["data_list"].append(data)
+            if data["count"] is None:
+                grp["missing_counts"].append(venue)
         return date_groups
 
     def _fill_grubhub_group(self, grub_date, grp, casheet_path,
@@ -525,6 +602,7 @@ class CashSheetAutofillEngine:
         """Aggregate (if needed), fold discounts in, and fill one cash row."""
         venue_names = grp["venues"]
         data_list = grp["data_list"]
+        missing_counts = grp.get("missing_counts", [])
 
         if len(data_list) > 1:
             label = f"{grub_date} : {', '.join(venue_names)} (combined)"
@@ -538,14 +616,21 @@ class CashSheetAutofillEngine:
             venue_display = venue_names[0]
 
         self._add_discounts(merged_data)
+        if missing_counts:
+            merged_data["count"] = None
+            self.tracker.warning(
+                "Missing Grubhub order count for "
+                f"{', '.join(missing_counts)} on {grub_date}; "
+                "count cell left unchanged.")
 
         # One compact summary line per cash row before we fill.
         sales = merged_data.get("total_sales", 0)
         tax = merged_data.get("tax", 0)
         count = merged_data.get("count", 0)
+        count_text = count if count is not None else "not filled"
         self.tracker.detail(
             f"{venue_display:<40} ${sales:>9.2f}  tax ${tax:>6.2f}  "
-            f"count {count}")
+            f"count {count_text}")
 
         self.fill_and_save(
             casheet_path, loc_in_casheet, raw_location, loc_in_db,
