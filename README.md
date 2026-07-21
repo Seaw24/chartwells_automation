@@ -89,13 +89,29 @@ flowchart LR
 
 **2 · Normalize.** Every raw tender name ("AT Meal Transfer", "Mastercard", "AT Flex Dollars"…) is mapped through a config table into one of **12 canonical tenders** (`contract_card, flex, transfer, coupons, ucash, ushop, chartwellsDCB, dining_dollars, amex, discover, mc, visa`). Accented location names are Unicode-normalized so `"Café"` matches `"Cafe"`. The output of every parser is the same shape: `location, date, total_sales, tax, count, net_sales, tenders{}`.
 
-**3 · Autofill.** `openpyxl` opens each location's workbook, picks the tab matching the report's weekday, finds the location's row (exact match, then a "contains" fallback so `grubhub` matches inside `City Edge - grubhub`), and writes each value to the column named in the JSON config. **A whole config, not code, defines the mapping** — 21 location routes and 20 Grubhub venue groupings live in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json), all editable from the in-app **CS Config** tab.
+**3 · Autofill.** `openpyxl` opens each location's workbook, picks the tab matching the report's weekday, finds the location's row (exact match, then a "contains" fallback so `grubhub` matches inside `City Edge - grubhub`), and writes each value to the column named in the JSON config. **A whole config, not code, defines the mapping** — 21 location routes and 20 Grubhub venue groupings live in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json), all editable from the in-app **Cash Sheet Settings** tab.
 
 **4 · Verify (the part that matters).** After writing, the engine re-opens the sheet and reads the spreadsheet's own **over/short** column. If tenders don't reconcile to sales, the fill is flagged as a validation failure — a source mismatch is *caught*, not buried. Parsers additionally collect any tender or venue they couldn't map and surface them as warnings. This cross-check is what drove several early parser fixes and kept accuracy holding as new venues were added.
 
 **5 · Aggregate.** The Tender Breakdown engine reads the filled cash sheets back (values only, via `data_only=True`) and writes each location's daily figures into the correct date row of a single master workbook — including special cases like summing multi-register venues.
 
 **6 · Persist & report.** Each record is UPSERTed into `tender_records` (`ON CONFLICT (report_date, raw_location, location, source)`), and the analytics page reads aggregates back for KPIs and charts — with period-over-period comparison and a location filter.
+
+---
+
+## Adding venues & tenders yourself — no code needed
+
+Everything the engines rely on is editable from inside the app. The **Cash Sheet Settings** and **Tender Settings** tabs in the Auto-Fill Center expose the whole configuration as tables with **+ Add**, edit, and delete controls:
+
+![Tender Settings tab — filename mappings with add/edit/delete controls](docs/screenshots/tender-settings.png)
+
+- **Cash Sheet Locations** — route a new Infor / Tavlo report location: which cash-sheet workbook it belongs to, which register row inside the sheet, and the name shown on the Analytics page.
+- **Grubhub Venues** — the same routing for venues that appear on the Grubhub report.
+- **Fill Columns / Checking Columns** — change which spreadsheet column each value is written to, and which columns are re-read during verification.
+- **Tender maps** — teach the app a new tender name from any vendor report (Infor, Tavlo, or Grubhub) and map it to one of the 12 canonical tenders.
+- **Tender Settings** — the master-breakdown side: filename → location mappings, each location's start column, and the date / data-column layout.
+
+Dialogs describe every field with concrete examples, validate numeric input, block duplicate names, and each change is written straight back to the JSON config the engines read — so a non-technical staff member can onboard a brand-new dining venue in under a minute, in the packaged `.exe`, without touching a file.
 
 ---
 
@@ -171,7 +187,7 @@ pyinstaller chartwells.spec --clean
 # → dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.2`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.4`) lives in [`updater.py`](BE/src/updater.py).
 
 Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code.
 

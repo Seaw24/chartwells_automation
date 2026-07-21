@@ -27,7 +27,7 @@ try:
         FONT,
         Card as _Card,
         section_label as _section_label,
-        add_button as _add_button,
+        card_header as _card_header,
     )
 except ImportError:
     from autofill_center_ui import (
@@ -50,7 +50,7 @@ except ImportError:
         FONT,
         Card as _Card,
         section_label as _section_label,
-        add_button as _add_button,
+        card_header as _card_header,
     )
 
 try:
@@ -396,8 +396,8 @@ class AutoFillCenter(ctk.CTkFrame):
         tabs = [
             ("cash_sheet",  "Cash Sheet"),
             ("tender",      "Tender Breakdown"),
-            ("cs_config",   "CS Config"),
-            ("tb_config",   "TB Config"),
+            ("cs_config",   "Cash Sheet Settings"),
+            ("tb_config",   "Tender Settings"),
         ]
         for key, label in tabs:
             wrapper = ctk.CTkFrame(bar, fg_color="transparent")
@@ -661,10 +661,10 @@ class AutoFillCenter(ctk.CTkFrame):
             relx=.5, rely=.5, anchor="center")
         lbl_frame = ctk.CTkFrame(hdr_frame, fg_color="transparent")
         lbl_frame.pack(side="left")
-        ctk.CTkLabel(lbl_frame, text="Cash Sheet Configuration",
+        ctk.CTkLabel(lbl_frame, text="Cash Sheet Settings",
                      font=ctk.CTkFont(family=FONT, size=17, weight="bold"),
                      text_color=PURPLE).pack(anchor="w")
-        ctk.CTkLabel(lbl_frame, text="Manage folder paths, location mappings, column settings & tenders",
+        ctk.CTkLabel(lbl_frame, text="Folders, location mappings, column numbers, and tender names for the cash sheet autofill",
                      font=ctk.CTkFont(family=FONT, size=11),
                      text_color=TEXT_SEC).pack(anchor="w")
         grid_row += 1
@@ -689,98 +689,93 @@ class AutoFillCenter(ctk.CTkFrame):
         self._config_rep_folder.insert(0, REPORTS_FOLDER)
         self._config_rep_folder.configure(state="readonly")
 
-        # ── CS Location Mappings ───────────────────────────────
+        # ── Cash Sheet Locations ───────────────────────────────
         c1 = _Card(page)
         c1.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
         grid_row += 1
         w1 = ctk.CTkFrame(c1, fg_color="transparent")
         w1.pack(fill="x", padx=16, pady=12)
-        hdr = ctk.CTkFrame(w1, fg_color="transparent")
-        hdr.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr, text="Cash Sheet Location Mappings",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        self._cs_loc_count = ctk.CTkLabel(
-            hdr, text=f"({len(REPORTS_CASHSHEET_MAP)} locations)",
-            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
-        self._cs_loc_count.pack(side="left", padx=(8, 0))
-        _add_button(hdr, self._add_cs_location)
         self._cs_loc_container = ctk.CTkFrame(w1, fg_color="transparent")
+        self._cs_loc_container._count_label = _card_header(
+            w1, "Cash Sheet Locations",
+            subtitle=("Where each Infor / Tavlo report location lands: "
+                      "which cash-sheet file, which register row inside it, "
+                      "and the name shown on the Analytics page."),
+            add_cb=self._add_cs_location)
         self._cs_loc_container.pack(fill="x")
         self._refresh_cs_loc_table()
 
-        # ── Grubhub Venue Mappings ─────────────────────────────
+        # ── Grubhub Venues ─────────────────────────────────────
         c_gh = _Card(page)
         c_gh.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
         grid_row += 1
         w_gh = ctk.CTkFrame(c_gh, fg_color="transparent")
         w_gh.pack(fill="x", padx=16, pady=12)
-        hdr_gh = ctk.CTkFrame(w_gh, fg_color="transparent")
-        hdr_gh.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr_gh, text="Grubhub Venue Mappings",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        self._gh_loc_count = ctk.CTkLabel(
-            hdr_gh, text=f"({len(GRUBHUB_VENUE_MAP)} venues)",
-            font=ctk.CTkFont(family=FONT, size=11), text_color=TEXT_MUTED)
-        self._gh_loc_count.pack(side="left", padx=(8, 0))
-        _add_button(hdr_gh, self._add_gh_venue)
         self._gh_loc_container = ctk.CTkFrame(w_gh, fg_color="transparent")
+        self._gh_loc_container._count_label = _card_header(
+            w_gh, "Grubhub Venues",
+            subtitle=("Where each venue on the Grubhub report lands: "
+                      "which cash-sheet file, which row inside it, and the "
+                      "name shown on the Analytics page."),
+            add_cb=self._add_gh_venue)
         self._gh_loc_container.pack(fill="x")
         self._refresh_gh_venue_table()
 
-        # ── Fill Column Mappings ───────────────────────────────
+        # ── Fill Columns ───────────────────────────────────────
         c2 = _Card(page)
         c2.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
         grid_row += 1
         w2 = ctk.CTkFrame(c2, fg_color="transparent")
         w2.pack(fill="x", padx=16, pady=12)
-        hdr2 = ctk.CTkFrame(w2, fg_color="transparent")
-        hdr2.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr2, text="Fill Column Mappings",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        _add_button(hdr2, lambda: self._add_kv(FILL_COL_MAP, self._fill_tbl))
         self._fill_tbl = ctk.CTkFrame(w2, fg_color="transparent")
+        self._fill_tbl._count_label = _card_header(
+            w2, "Fill Columns",
+            subtitle=("Cash-sheet column each report value is written to "
+                      "(column A = 1)."),
+            add_cb=lambda: self._add_kv(FILL_COL_MAP, self._fill_tbl))
         self._fill_tbl.pack(fill="x")
         self._refresh_kv_table(self._fill_tbl, FILL_COL_MAP)
 
         # ── Checking Columns ───────────────────────────────────
         ctk.CTkFrame(w2, fg_color=BORDER, height=1).pack(fill="x", pady=10)
-        hdr3 = ctk.CTkFrame(w2, fg_color="transparent")
-        hdr3.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hdr3, text="Checking Columns",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        _add_button(hdr3, lambda: self._add_kv(
-            CHECKING_COL_MAP, self._chk_tbl))
         self._chk_tbl = ctk.CTkFrame(w2, fg_color="transparent")
+        self._chk_tbl._count_label = _card_header(
+            w2, "Checking Columns",
+            subtitle=("Columns read back after filling to double-check the "
+                      "sheet's totals (column A = 1)."),
+            add_cb=lambda: self._add_kv(CHECKING_COL_MAP, self._chk_tbl))
         self._chk_tbl.pack(fill="x")
         self._refresh_kv_table(self._chk_tbl, CHECKING_COL_MAP)
 
         # ── Tender Mappings (Cash Sheet) ───────────────────────
         tender_maps = [
-            ("Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS),
-            ("Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS),
-            ("Grubhub Tenders", "Payment Method",
-             "Internal Key", GRUBHUB_TENDERS),
-            ("Cash Sheet Tenders", "Key", "Default", CASHEET_TENDERS),
+            ("Infor Tenders", "Tender Name", "Internal Key", INFOR_TENDERS,
+             "How each tender named on Infor day reports is counted: "
+             "report name → internal tender key."),
+            ("Tavlo Tenders", "Tender Name", "Internal Key", TAVLO_TENDERS,
+             "How each tender named on Tavlo reports is counted: "
+             "report name → internal tender key."),
+            ("Grubhub Tenders", "Payment Method", "Internal Key",
+             GRUBHUB_TENDERS,
+             "How each Grubhub payment method is counted: "
+             "payment method → internal tender key."),
+            ("Cash Sheet Tenders", "Tender Key", "Default Value",
+             CASHEET_TENDERS,
+             "Internal tender keys tracked on every cash-sheet row, with "
+             "the starting amount for each."),
         ]
-        for heading, kl, vl, data in tender_maps:
+        for heading, kl, vl, data, subtitle in tender_maps:
             tc = _Card(page)
             tc.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
             grid_row += 1
             wt = ctk.CTkFrame(tc, fg_color="transparent")
             wt.pack(fill="x", padx=16, pady=12)
-            ht = ctk.CTkFrame(wt, fg_color="transparent")
-            ht.pack(fill="x", pady=(0, 8))
-            ctk.CTkLabel(ht, text=heading,
-                         font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                         text_color=TEXT).pack(side="left")
             container = ctk.CTkFrame(wt, fg_color="transparent")
+            container._count_label = _card_header(
+                wt, heading, subtitle=subtitle,
+                add_cb=lambda d=data, c=container, k=kl, v=vl:
+                self._add_tender(d, c, k, v))
             container.pack(fill="x")
-            _add_button(ht, lambda d=data, c=container, k=kl, v=vl:
-                        self._add_tender(d, c, k, v))
             self._refresh_tender_table(container, data, kl, vl)
 
         return page
@@ -808,10 +803,10 @@ class AutoFillCenter(ctk.CTkFrame):
             relx=.5, rely=.5, anchor="center")
         lbl_frame = ctk.CTkFrame(hdr_frame, fg_color="transparent")
         lbl_frame.pack(side="left")
-        ctk.CTkLabel(lbl_frame, text="Tender Breakdown Configuration",
+        ctk.CTkLabel(lbl_frame, text="Tender Breakdown Settings",
                      font=ctk.CTkFont(family=FONT, size=17, weight="bold"),
                      text_color=PURPLE).pack(anchor="w")
-        ctk.CTkLabel(lbl_frame, text="Manage breakdown file, date settings, filename mappings & columns",
+        ctk.CTkLabel(lbl_frame, text="Master breakdown file, date settings, filename mappings, and column layout",
                      font=ctk.CTkFont(family=FONT, size=11),
                      text_color=TEXT_SEC).pack(anchor="w")
         grid_row += 1
@@ -848,51 +843,53 @@ class AutoFillCenter(ctk.CTkFrame):
         self._config_tb_master.configure(state="readonly")
 
         # Date col + first date row
+        ctk.CTkLabel(wtp,
+                     text=("Where dates live on each cash sheet: the column "
+                           "holding the date (A = 1) and the first row that "
+                           "contains one."),
+                     font=ctk.CTkFont(family=FONT, size=11),
+                     text_color=TEXT_SEC).grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
         ctk.CTkLabel(wtp, text="Date Column:",
                      font=ctk.CTkFont(family=FONT, size=12),
-                     text_color=TEXT).grid(row=2, column=0, sticky="w", pady=(6, 0))
+                     text_color=TEXT).grid(row=3, column=0, sticky="w", pady=(6, 0))
         self._config_date_col = ctk.CTkEntry(
             wtp, height=30, border_color=BORDER, width=80,
             font=ctk.CTkFont(family=FONT, size=11))
         self._config_date_col.grid(
-            row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+            row=3, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
         self._config_date_col.insert(0, str(DATE_COL))
 
         ctk.CTkLabel(wtp, text="First Date Row:",
                      font=ctk.CTkFont(family=FONT, size=12),
-                     text_color=TEXT).grid(row=3, column=0, sticky="w", pady=(6, 0))
+                     text_color=TEXT).grid(row=4, column=0, sticky="w", pady=(6, 0))
         self._config_first_row = ctk.CTkEntry(
             wtp, height=30, border_color=BORDER, width=80,
             font=ctk.CTkFont(family=FONT, size=11))
         self._config_first_row.grid(
-            row=3, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+            row=4, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
         self._config_first_row.insert(0, str(FIRST_DATE_ROW))
 
         # Save settings button
         ctk.CTkButton(
-            wtp, text="Save Settings", width=120, height=30,
+            wtp, text="Save Date Settings", width=140, height=30,
             corner_radius=8, fg_color=GREEN, hover_color="#2DA44E",
             font=ctk.CTkFont(family=FONT, size=11, weight="bold"),
             command=self._save_tender_settings
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
-        # ── Filename → Master Mappings ─────────────────────────
+        # ── Filename Mappings ──────────────────────────────────
         cf = _Card(page)
         cf.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 8))
         grid_row += 1
         wf = ctk.CTkFrame(cf, fg_color="transparent")
         wf.pack(fill="x", padx=16, pady=12)
-        hf = ctk.CTkFrame(wf, fg_color="transparent")
-        hf.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hf, text="Filename → Master Name Mappings",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        self._fn_map_count = ctk.CTkLabel(
-            hf, text="", font=ctk.CTkFont(family=FONT, size=11),
-            text_color=TEXT_MUTED)
-        self._fn_map_count.pack(side="left", padx=(8, 0))
-        _add_button(hf, self._add_filename_mapping)
         self._fn_map_container = ctk.CTkFrame(wf, fg_color="transparent")
+        self._fn_map_container._count_label = _card_header(
+            wf, "Filename Mappings",
+            subtitle=("Connects each cash-sheet file (by filename keyword) "
+                      "to its location block in the master breakdown file."),
+            add_cb=self._add_filename_mapping)
         self._fn_map_container.pack(fill="x")
         self._refresh_filename_mapping_table()
 
@@ -902,37 +899,33 @@ class AutoFillCenter(ctk.CTkFrame):
         grid_row += 1
         wl = ctk.CTkFrame(cl, fg_color="transparent")
         wl.pack(fill="x", padx=16, pady=12)
-        hl = ctk.CTkFrame(wl, fg_color="transparent")
-        hl.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(hl, text="Location Start Columns",
-                     font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(side="left")
-        self._loc_col_count = ctk.CTkLabel(
-            hl, text="", font=ctk.CTkFont(family=FONT, size=11),
-            text_color=TEXT_MUTED)
-        self._loc_col_count.pack(side="left", padx=(8, 0))
-        _add_button(hl, lambda: self._add_tender_kv(
-            LOCATION_START_COL, self._loc_col_container,
-            "Location Name", "Start Column"))
         self._loc_col_container = ctk.CTkFrame(wl, fg_color="transparent")
+        self._loc_col_container._count_label = _card_header(
+            wl, "Location Start Columns",
+            subtitle=("First column of each location's block in the master "
+                      "breakdown file (column A = 1)."),
+            add_cb=lambda: self._add_tender_kv(
+                LOCATION_START_COL, self._loc_col_container,
+                "Location Name", "Start Column"))
         self._loc_col_container.pack(fill="x")
-        self._loc_col_container._count_label = self._loc_col_count
         self._refresh_tender_kv_table(
             self._loc_col_container, LOCATION_START_COL,
             "Location Name", "Start Column")
 
-        # ── Important Data Columns ─────────────────────────────
+        # ── Data Columns to Copy ───────────────────────────────
         ci = _Card(page)
         ci.grid(row=grid_row, column=0, sticky="ew", padx=20, pady=(0, 12))
         grid_row += 1
         wi = ctk.CTkFrame(ci, fg_color="transparent")
         wi.pack(fill="x", padx=16, pady=12)
-        ctk.CTkLabel(wi, text="Important Casheet Data Columns",
+        ctk.CTkLabel(wi, text="Data Columns to Copy",
                      font=ctk.CTkFont(family=FONT, size=14, weight="bold"),
-                     text_color=TEXT).pack(anchor="w", pady=(0, 8))
-        ctk.CTkLabel(wi, text="Comma-separated column numbers extracted from each cash sheet row:",
+                     text_color=TEXT).pack(anchor="w", pady=(0, 2))
+        ctk.CTkLabel(wi, text=("Cash-sheet columns copied into the master "
+                               "breakdown for every row. Whole numbers "
+                               "separated by commas (column A = 1)."),
                      font=ctk.CTkFont(family=FONT, size=11),
-                     text_color=TEXT_SEC).pack(anchor="w")
+                     text_color=TEXT_SEC).pack(anchor="w", pady=(0, 6))
         self._config_data_cols = ctk.CTkEntry(
             wi, height=30, border_color=BORDER,
             font=ctk.CTkFont(family=FONT, size=12))
