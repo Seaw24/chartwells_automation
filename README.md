@@ -187,7 +187,7 @@ pyinstaller chartwells.spec --clean
 # → dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.2`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.4`) lives in [`updater.py`](BE/src/updater.py).
 
 Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code.
 
