@@ -57,6 +57,48 @@ jobs:
           }
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      # GitHub releases are immutable: once a tag has a release, its assets
+      # and commit can never be changed, so re-publishing an existing
+      # version always fails. And if the tag doesn't match CURRENT_VERSION,
+      # the shipped exe reports the wrong version and the in-app updater
+      # offers itself as an update forever. Catch both before the build.
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          $updater = Get-Content "BE\src\updater.py" -Raw
+          if ($updater -notmatch 'CURRENT_VERSION\s*=\s*"([^"]+)"') {
+            throw "Could not find CURRENT_VERSION in BE\src\updater.py"
+          }
+          $codeTag = "v$($Matches[1].TrimStart('v'))"
+          if ($codeTag -ne $env:RELEASE_TAG) {
+            throw ("Release tag $env:RELEASE_TAG does not match " +
+              "CURRENT_VERSION ($codeTag) in BE/src/updater.py. The built " +
+              "exe would immediately see itself as outdated. Bump " +
+              "CURRENT_VERSION to match the tag and re-tag.")
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept        = "application/vnd.github+json"
+          }
+          $existing = $null
+          try {
+            $existing = Invoke-RestMethod -Headers $headers -Uri `
+              "https://api.github.com/repos/$env:REPO/releases/tags/$env:RELEASE_TAG"
+          } catch {
+            # 404 means the tag has no release yet — exactly what we want.
+          }
+          if ($existing) {
+            throw ("A release for $env:RELEASE_TAG already exists and " +
+              "releases are immutable — it cannot be re-published or " +
+              "modified. Bump CURRENT_VERSION in BE/src/updater.py and " +
+              "push a new tag instead.")
+          }
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
