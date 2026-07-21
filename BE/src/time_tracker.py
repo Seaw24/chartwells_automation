@@ -16,6 +16,8 @@ Both cash_sheet_filler and tender_break can import this independently.
 The JSON file lives next to this module at BE/src/time_saved.json.
 """
 
+from __future__ import annotations
+
 import sys
 import json
 from pathlib import Path

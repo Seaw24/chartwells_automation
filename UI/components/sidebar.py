@@ -3,6 +3,8 @@ Compact sidebar with hover-expand / collapse.
 Accepts a ``nav_callbacks`` dict mapping logical names to callables.
 """
 
+from __future__ import annotations
+
 import customtkinter as ctk
 from pathlib import Path
 

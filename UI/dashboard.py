@@ -3,13 +3,30 @@ Chartwells Automation – Main Application Window
 Compact, lightweight UI built with customtkinter.
 """
 
+from __future__ import annotations
+
 import customtkinter as ctk
+import os
 from pathlib import Path
 import sys
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    load_dotenv = None
 
 # ── ensure we can import components & BE packages ────────────────────
 _UI_DIR = Path(__file__).resolve().parent
 _ROOT_DIR = _UI_DIR.parent
+
+if load_dotenv is not None:
+    ui_env = _UI_DIR / ".env"
+    root_env = _ROOT_DIR / ".env"
+    if ui_env.exists():
+        load_dotenv(ui_env)
+    elif root_env.exists():
+        load_dotenv(root_env)
+
 for _p in (_UI_DIR, _ROOT_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))

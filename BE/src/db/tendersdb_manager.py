@@ -13,6 +13,8 @@ Design choices
   and all callers work without changes.
 """
 
+from __future__ import annotations
+
 from email.policy import default
 import os
 import re

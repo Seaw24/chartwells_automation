@@ -21,6 +21,8 @@ Setup:
     5. If private repo, set GITHUB_TOKEN in your .env
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json

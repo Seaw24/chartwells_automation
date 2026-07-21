@@ -6,8 +6,13 @@ Tender Breakdown.xlsx
 .DS_Store
 .vscode/
 /myenv
+/.venv
 /.claude
 /dist
 /build
 /DB
 .env
+
+# Local demo recordings (kept out of the repo — screenshots live in docs/)
+/demo
+*.mov
