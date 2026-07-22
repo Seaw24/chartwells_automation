@@ -6,7 +6,9 @@ Built for the Chartwells Higher Education dining team at the University of Utah.
 
 > **Impact:** ~30 min/day of manual data entry eliminated per run · 150+ staff hours saved since Nov 2025 · absorbed a data-entry role that was never backfilled.
 
-![Analytics dashboard](docs/screenshots/analytics-overview.png)
+![Demo — analytics dashboard, one-click autofill run, and print options](docs/demo.gif)
+
+*Live demo: analytics dashboard → one-click cash-sheet autofill with a streaming validation log → print options. Dollar figures are blurred for confidentiality.*
 
 ---
 
