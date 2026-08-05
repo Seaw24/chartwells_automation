@@ -295,5 +295,6 @@
   },
   "summary_data_map": {},
   "reports_folder": "/Users/u1614968/Downloads/reports 22",
-  "cash_sheets_folder": "/Users/u1614968/Downloads/Master Cashsheet"
+  "cash_sheets_folder": "/Users/u1614968/Downloads/Master Cashsheet",
+  "verbose_trace": true
 }

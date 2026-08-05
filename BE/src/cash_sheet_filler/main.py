@@ -30,6 +30,7 @@ from .config import (
     GRUBHUB_VENUE_MAP,
     REPORTS_FOLDER,
     CASH_SHEET_FOLDER,
+    VERBOSE_TRACE,
 )
 from ..utils import strip_accents
 
@@ -83,6 +84,16 @@ class ProcessingTracker:
     def detail(self, msg):
         """Secondary line shown indented under a section header."""
         self._emit("detail", f"   {msg}")
+
+    def trace(self, msg):
+        """
+        One line of step-by-step arithmetic, indented under a detail line.
+
+        Silent unless ``verbose_trace`` is on. Emitted as 'detail' so the UI
+        needs no new tag — these lines are secondary context, not status.
+        """
+        if VERBOSE_TRACE:
+            self._emit("detail", f"     {msg}")
 
     def warning(self, msg):
         """Standalone warning line (not tied to a specific success/failure)."""
@@ -417,6 +428,35 @@ class CashSheetAutofillEngine:
     #  PROCESS ONE INFOR / TAVLO REPORT  (one file = one venue)
     # ═══════════════════════════════════════════════════════════════
 
+    def _trace_single_report(self, data):
+        """
+        Show an Infor/Tavlo record's figures before they're written.
+
+        There is no aggregation, discount fold, or fee adjustment on this path —
+        one file is one venue for one date — so the trace is just the parsed
+        numbers plus the same tenders-vs-sales balance check Grubhub gets.
+        """
+        if not VERBOSE_TRACE:
+            return
+
+        t = self.tracker
+        count = data.get("count")
+        t.trace(f"┌ {data.get('location')} · {data.get('date')}  "
+                "(single venue — no aggregation, no fee/discount adjustment)")
+        t.trace(f"│ {'sales':<12}: ${data.get('total_sales', 0.0):.2f}   "
+                f"tax ${data.get('tax', 0.0):.2f}   "
+                f"count {count if count is not None else 'not filled'}")
+
+        live = {k: v for k, v in data.get("tenders", {}).items() if v}
+        t.trace(f"│ {'tenders':<12}: " + (" · ".join(
+            f"{k} ${v:.2f}" for k, v in sorted(live.items())) or "none"))
+
+        tender_sum = sum(data.get("tenders", {}).values())
+        delta = tender_sum - data.get("total_sales", 0.0)
+        mark = "✓ balances" if abs(delta) < 0.005 else f"✗ off by ${delta:+.2f}"
+        t.trace(f"│ {'balance':<12}: tenders ${tender_sum:.2f} vs sales "
+                f"${data.get('total_sales', 0.0):.2f}  {mark}")
+
     def process_single_report(self, report_parser, report_filename):
         """
         Parse an Infor or Tavlo report and fill its matching cash sheet.
@@ -434,6 +474,7 @@ class CashSheetAutofillEngine:
         data = report_parser.get_data_dict()
         location = strip_accents(data["location"])
         self.tracker.detail(f"{data['location']}  ·  {data['date']}")
+        self._trace_single_report(data)
 
         if self._report_has_data(data):
             self.printable_reports.add(report_filename)
@@ -473,15 +514,26 @@ class CashSheetAutofillEngine:
 
         Discounts on Grubhub reports are deducted from sales but the cash
         sheet expects the gross figure, so we add the discount amount back
-        to both ``total_sales`` and the ``visa`` tender column. Logs are
-        intentionally quiet here — the per-row dollars don't help the user.
+        to both ``total_sales`` and the ``visa`` tender column. Adding to a
+        tender as well as the total is what keeps ``sum(tenders)`` equal to
+        ``total_sales``, which is what the cash sheet's over/short formula
+        checks.
+
+        Returns ``(discount, before)`` where ``before`` is the
+        ``(visa, total_sales)`` pair prior to the fold, or None if there was
+        no discount to apply — the caller uses this to trace the change.
         """
         disc = data.get("discounts", 0.0)
+        before = None
         if disc:
             data.setdefault("tenders", {})
+            before = (data["tenders"].get("visa", 0.0),
+                      data.get("total_sales", 0.0))
             data["tenders"]["visa"] = data["tenders"].get("visa", 0.0) + disc
             data["total_sales"] = data.get("total_sales", 0.0) + disc
         data.pop("discounts", None)
+        # Returned so the caller can trace the fold without re-deriving it.
+        return disc, before
 
     def _aggregate_data_dicts(self, data_list):
         """Sum multiple data dicts that target the same cash-sheet row."""
@@ -597,6 +649,68 @@ class CashSheetAutofillEngine:
                 grp["missing_counts"].append(venue)
         return date_groups
 
+    def _trace_grubhub_group(self, grub_date, loc_in_casheet, loc_in_db,
+                             venue_names, data_list, merged, disc, disc_before):
+        """
+        Show how several venues become one cash-sheet row.
+
+        Every line is arithmetic the reader can check by hand: which venue
+        contributed what, how the discount moved, and whether the tenders add
+        up to the sales figure. The balance line is the same equality the cash
+        sheet's over/short column computes, so a mismatch here predicts a
+        non-zero over/short before the workbook is even opened.
+        """
+        if not VERBOSE_TRACE:
+            return
+
+        t = self.tracker
+        t.trace(f"┌ row '{loc_in_casheet}' ({loc_in_db}) · {grub_date} ← "
+                f"{' + '.join(venue_names)}")
+
+        def sum_line(label, values, total, money=True):
+            fmt = (lambda v: f"${v:.2f}") if money else (lambda v: f"{v}")
+            if len(values) > 1:
+                t.trace(f"│ {label:<12}: "
+                        f"{' + '.join(fmt(v) for v in values)} = {fmt(total)}")
+            else:
+                t.trace(f"│ {label:<12}: {fmt(total)}")
+
+        counts = [d.get("count") for d in data_list]
+        if any(c is None for c in counts):
+            t.trace(f"│ {'order count':<12}: missing for "
+                    f"{sum(1 for c in counts if c is None)} venue(s) "
+                    "— count cell will be left unchanged")
+        else:
+            sum_line("order count", counts, sum(counts), money=False)
+        t.trace("│               (order counts come from Sales-at-a-Glance, "
+                "not the tender report)")
+
+        # total_sales already includes the discount at this point, so subtract
+        # it back out to show the pre-fold contributions honestly.
+        sales = [d.get("total_sales", 0.0) for d in data_list]
+        sum_line("sales", sales, merged["total_sales"] - disc)
+        sum_line("tax", [d.get("tax", 0.0) for d in data_list], merged["tax"])
+
+        if disc and disc_before:
+            visa_before, sales_before = disc_before
+            t.trace(f"│ {'discounts':<12}: ${disc:.2f} added back → "
+                    f"visa ${visa_before:.2f} → "
+                    f"${merged['tenders']['visa']:.2f}, "
+                    f"sales ${sales_before:.2f} → "
+                    f"${merged['total_sales']:.2f}")
+        else:
+            t.trace(f"│ {'discounts':<12}: none")
+
+        live = {k: v for k, v in merged.get("tenders", {}).items() if v}
+        t.trace(f"│ {'tenders':<12}: " + (" · ".join(
+            f"{k} ${v:.2f}" for k, v in sorted(live.items())) or "none"))
+
+        tender_sum = sum(merged.get("tenders", {}).values())
+        delta = tender_sum - merged["total_sales"]
+        mark = "✓ balances" if abs(delta) < 0.005 else f"✗ off by ${delta:+.2f}"
+        t.trace(f"│ {'balance':<12}: tenders ${tender_sum:.2f} vs sales "
+                f"${merged['total_sales']:.2f}  {mark}")
+
     def _fill_grubhub_group(self, grub_date, grp, casheet_path,
                             loc_in_casheet, loc_in_db):
         """Aggregate (if needed), fold discounts in, and fill one cash row."""
@@ -618,7 +732,11 @@ class CashSheetAutofillEngine:
             merged_data = data_list[0]
             venue_display = venue_names[0]
 
-        self._add_discounts(merged_data)
+        disc, disc_before = self._add_discounts(merged_data)
+        self._trace_grubhub_group(
+            grub_date, loc_in_casheet, loc_in_db, venue_names, data_list,
+            merged_data, disc, disc_before)
+
         if missing_counts:
             merged_data["count"] = None
             self.tracker.warning(

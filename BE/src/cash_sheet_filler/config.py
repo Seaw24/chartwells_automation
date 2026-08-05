@@ -68,3 +68,9 @@ GRUBHUB_TENDERS = _config["grubhub_tenders"]
 GRUBHUB_VENUE_MAP = _config["grubhub_venue_map"]
 REPORTS_FOLDER = _config["reports_folder"]
 CASH_SHEET_FOLDER = _config["cash_sheets_folder"]
+
+# When true, parsers and the filler emit a step-by-step arithmetic trace
+# (service fee subtraction, discount fold, aggregation, cell writes) instead
+# of aggregate-only lines. Read with .get() so configs written by an older
+# build — which live next to the .exe and are never overwritten — still load.
+VERBOSE_TRACE = _config.get("verbose_trace", True)

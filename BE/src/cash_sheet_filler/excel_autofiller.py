@@ -4,8 +4,9 @@ Handles automated filling of cash sheet Excel workbooks with parsed sales data.
 """
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 import traceback
-from .config import FILL_COL_MAP, CHECKING_COL_MAP
+from .config import FILL_COL_MAP, CHECKING_COL_MAP, VERBOSE_TRACE
 from ..utils import strip_accents
 
 
@@ -61,6 +62,13 @@ class ExcelAutofiller:
     def _log_warning(self, msg):
         """Log filling warnings with a visual indicator."""
         self._log(f"  ⚠️  {msg}")
+
+    def _trace(self, msg):
+        """Verbose step-by-step line. Silent unless ``verbose_trace`` is on."""
+        if self.tracker and hasattr(self.tracker, "trace"):
+            self.tracker.trace(msg)
+        elif VERBOSE_TRACE:
+            print(f"     {msg}")
 
     # ─── Core Methods ────────────────────────────────────────────────────
 
@@ -213,23 +221,38 @@ class ExcelAutofiller:
             # Tax is typically on the row below the main data row
             tax_row = self.row + 1
 
+            # Collected for the verbose trace so the reader can see exactly
+            # which cell each number landed in, and which were cleared.
+            written, cleared = [], []
+
+            def put(r, c, value, label):
+                self.ws.cell(r, c).value = value
+                ref = f"{get_column_letter(c)}{r}"
+                if value is None:
+                    cleared.append(f"{ref} {label}")
+                else:
+                    written.append(f"{ref} {label} "
+                                   + (f"{value:.2f}" if isinstance(value, float)
+                                      else f"{value}"))
+
             # Step 2: Fill basic performance metrics
             date_col = FILL_COL_MAP.get("date")
             if date_col:
-                self.ws.cell(1, date_col).value = parser.get("date")
+                put(1, date_col, parser.get("date"), "date")
 
             count_col = FILL_COL_MAP.get("count")
             if count_col and parser.get("count") is not None:
-                self.ws.cell(self.row, count_col).value = parser.get("count")
+                put(self.row, count_col, parser.get("count"), "count")
 
             total_sales_col = FILL_COL_MAP.get("total_sales")
             if total_sales_col:
-                self.ws.cell(self.row, total_sales_col).value = parser.get(
-                    "total_sales")
+                put(self.row, total_sales_col,
+                    parser.get("total_sales"), "sales")
 
             tax_col = FILL_COL_MAP.get("tax")
             if tax_col:
-                self.ws.cell(tax_row, tax_col).value = parser.get("tax")
+                # Same column as sales, one row down — that's the sheet layout.
+                put(tax_row, tax_col, parser.get("tax"), "tax")
 
             # Step 3: Fill tender amounts
             tenders = parser.get("tenders", {})
@@ -244,14 +267,21 @@ class ExcelAutofiller:
 
                 # Write all non-zero amounts (including negatives); clear zeros
                 if amount != 0:
-                    self.ws.cell(self.row, col).value = amount
+                    put(self.row, col, amount, tender_name)
                 else:
-                    self.ws.cell(self.row, col).value = None
+                    put(self.row, col, None, tender_name)
 
             # Report any unmatched tenders
             if unmatched_tenders:
                 self._log_warning(
                     f"Unmatched tenders not filled: {', '.join(unmatched_tenders)}")
+
+            if written:
+                self._trace("│ wrote       : " + " · ".join(written))
+            if cleared:
+                # A zero tender is written as None on purpose — it erases last
+                # run's value rather than leaving a stale number behind.
+                self._trace("│ cleared (0) : " + " · ".join(cleared))
 
             self._log(f"  ✓ {self.location} filled successfully")
             return True

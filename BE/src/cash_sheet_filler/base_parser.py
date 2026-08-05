@@ -6,11 +6,14 @@ Each parser inherits from ``BaseParser`` so it can call:
     self._log(msg)         — neutral info line
     self._log_warning(msg) — warning (orange in the UI)
     self._log_error(msg)   — error   (red in the UI)
+    self._trace(msg)       — step-by-step arithmetic (verbose_trace only)
 
 When a ``ProcessingTracker`` is attached, log calls are routed through its
 structured emitters so the UI can color them. Without a tracker we fall
 back to ``print`` so parsers stay usable from the CLI.
 """
+
+from .config import VERBOSE_TRACE
 
 
 class BaseParser:
@@ -18,6 +21,20 @@ class BaseParser:
 
     def __init__(self, tracker=None):
         self.tracker = tracker
+
+    def _trace(self, msg):
+        """
+        One line of step-by-step arithmetic trace.
+
+        Silent unless ``verbose_trace`` is on in the config. These lines show
+        the actual math — fee subtracted, discount folded, totals summed — so
+        the numbers on a cash sheet can be followed back to the CSV rows that
+        produced them.
+        """
+        if self.tracker and hasattr(self.tracker, "trace"):
+            self.tracker.trace(msg)
+        elif VERBOSE_TRACE:
+            print(f"     {msg}")
 
     def _log(self, msg):
         """Neutral info line."""

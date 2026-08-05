@@ -93,11 +93,27 @@ flowchart LR
 
 **3 · Autofill.** `openpyxl` opens each location's workbook, picks the tab matching the report's weekday, finds the location's row (exact match, then a "contains" fallback so `grubhub` matches inside `City Edge - grubhub`), and writes each value to the column named in the JSON config. **A whole config, not code, defines the mapping** — 21 location routes and 20 Grubhub venue groupings live in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json), all editable from the in-app **Cash Sheet Settings** tab.
 
-**4 · Verify (the part that matters).** After writing, the engine re-opens the sheet and reads the spreadsheet's own **over/short** column. If tenders don't reconcile to sales, the fill is flagged as a validation failure — a source mismatch is *caught*, not buried. Parsers additionally collect any tender or venue they couldn't map and surface them as warnings. This cross-check is what drove several early parser fixes and kept accuracy holding as new venues were added.
+**4 · Verify (the part that matters).** After writing, the engine re-opens the sheet and reads the spreadsheet's own **over/short** column; a non-zero value flags the fill as a validation failure. `openpyxl` writes formulas but never evaluates them, so when that column holds a formula the engine reports the check as *unverified* rather than claiming a pass it didn't earn. Independently of Excel, the trace sums the tender columns against sales in Python — so a mismatch (an unmapped tender leaking into the total, say) surfaces before the workbook is ever opened. Parsers additionally collect any tender or venue they couldn't map and surface them as warnings. This cross-check is what drove several early parser fixes and kept accuracy holding as new venues were added.
 
 **5 · Aggregate.** The Tender Breakdown engine reads the filled cash sheets back (values only, via `data_only=True`) and writes each location's daily figures into the correct date row of a single master workbook — including special cases like summing multi-register venues.
 
 **6 · Persist & report.** Each record is UPSERTed into `tender_records` (`ON CONFLICT (report_date, raw_location, location, source)`), and the analytics page reads aggregates back for KPIs and charts — with period-over-period comparison and a location filter.
+
+**Following the money.** With `"verbose_trace": true` in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json) (the default), the log shows the arithmetic behind every figure rather than just the totals — each CSV row's charged amount and the service fee subtracted from it, grouped under its venue; how several venues sum into one cash-sheet row; the discount added back to both sales and the `visa` tender; the tenders-vs-sales balance; and the exact cell each number was written to. Set it to `false` for totals-only output.
+
+```
+┌ Absurd Bird · 07/28/2025  (3 row(s))
+│ Credit Card      charged $   112.75  − fee $   3.25  = $   109.50  → visa             · tax $   8.42 · meals   9
+│ Dining Dollars   charged $    55.30                  = $    55.30  → dining_dollars   · tax $   4.10 · meals   5 · discount $2.00 held
+│ Meal Swipes      charged $    18.00                  = $    18.00  → transfer         · tax $   1.20 · meals   2 · merged from "- Meal Transfer"
+└ venue total: sales $182.80 · tax $13.72 · discounts held $2.00 · meals 16
+┌ row 'grubhub' (Gardner Food Court) · 07/28/2025 ← Absurd Bird + Cupbop + Iron Waffle
+│ order count : 15 + 6 + 3 = 24
+│ sales       : $182.80 + $77.90 + $33.00 = $293.70
+│ discounts   : $2.00 added back → visa $187.40 → $189.40, sales $293.70 → $295.70
+│ balance     : tenders $295.70 vs sales $295.70  ✓ balances
+│ wrote       : U1 date 07/28/2025 · A13 count 24 · C13 sales 295.70 · C14 tax 22.22 · S13 visa 189.40 …
+```
 
 ---
 
@@ -189,7 +205,7 @@ pyinstaller chartwells.spec --clean
 # → dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.8`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.9`) lives in [`updater.py`](BE/src/updater.py).
 
 Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code.
 

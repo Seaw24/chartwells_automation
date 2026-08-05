@@ -15,12 +15,17 @@ into ``data[date][venue]`` and reconciles a few quirks of the Grubhub format:
 * Meal count is tracked only for diagnostics. Cash-sheet order count now comes
   from the separate Sales-at-a-Glance report.
 
-The class only logs aggregates — never per-row dollars — so the UI stays calm.
+Logging has two levels. By default the class reports only aggregates so the
+UI stays calm. With ``verbose_trace`` on in the config it also prints each
+row's arithmetic — charged amount, fee subtracted, resulting tender — grouped
+under the venue it belongs to, so a cash-sheet figure can be traced back to
+the CSV rows that produced it.
 """
 
 import csv
 from datetime import datetime
-from .config import GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP, CASHEET_TENDERS
+from .config import (GRUBHUB_TENDERS, GRUBHUB_VENUE_MAP, CASHEET_TENDERS,
+                     VERBOSE_TRACE)
 from .base_parser import BaseParser
 
 from ..utils import strip_accents
@@ -51,6 +56,10 @@ class GrubhubParser(BaseParser):
         # of one log line per row.
         self._service_fee_count = 0
         self._service_fee_total = 0.0
+        # {(date, venue): [row trace line, ...]} — built during the row loop
+        # and emitted grouped by venue at the end, so the log reads
+        # venue-by-venue instead of following the CSV's row order.
+        self._trace_rows = {}
 
     @staticmethod
     def _parse_dollar(value):
@@ -103,6 +112,7 @@ class GrubhubParser(BaseParser):
             msg += (f" · removed ${self._service_fee_total:.2f} in service "
                     f"fees from {self._service_fee_count} Credit Card row(s)")
         self._log(f"   {msg}")
+        self._emit_row_traces()
         return True
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -170,8 +180,13 @@ class GrubhubParser(BaseParser):
             return
 
         # Merge "- Meal Transfer" suffix venues into the base venue.
-        if venue.endswith(self.MERGE_SUFFIX):
+        merged_from_transfer = venue.endswith(self.MERGE_SUFFIX)
+        if merged_from_transfer:
             venue = venue[: -len(self.MERGE_SUFFIX)].strip()
+
+        # Keep the pre-adjustment figure so the trace can show the subtraction.
+        charged = sale
+        service_fee = 0.0
 
         # Credit Card rows arrive with Grubhub's service fee still baked into
         # the tendered amount. Subtract it so only venue revenue is recorded.
@@ -183,6 +198,7 @@ class GrubhubParser(BaseParser):
                 self._service_fee_count += 1
             except (ValueError, IndexError):
                 self._log_warning(f"Could not parse service fee in row {i}")
+                service_fee = 0.0
 
         entry = self.data.setdefault(date, {}).setdefault(
             venue,
@@ -205,10 +221,59 @@ class GrubhubParser(BaseParser):
             casheet_key = GRUBHUB_TENDERS[payment_method]
             entry["tenders"][casheet_key] += sale
         else:
+            casheet_key = None
             self._unmapped_tenders.add(payment_method)
 
         if venue not in GRUBHUB_VENUE_MAP:
             self._unmapped_venues.add(venue)
+
+        self._record_row_trace(
+            date, venue, payment_method, casheet_key, charged, service_fee,
+            sale, tax, discounts, meal_count, merged_from_transfer)
+
+    def _record_row_trace(self, date, venue, payment_method, casheet_key,
+                          charged, service_fee, sale, tax, discounts,
+                          meal_count, merged_from_transfer):
+        """
+        Remember one row's arithmetic for the verbose trace.
+
+        Built as a string here rather than logged immediately so ``parse`` can
+        group the lines under their venue — the CSV interleaves venues, and a
+        log that jumps between them is unreadable.
+        """
+        if not VERBOSE_TRACE:
+            return
+
+        # Fixed-width segments so the numbers line up into readable columns
+        # even when a row has no fee to subtract.
+        fee_part = f"  − fee ${service_fee:>7.2f}" if service_fee else " " * 16
+        line = (f"{payment_method:<16} charged ${charged:>9.2f}{fee_part}"
+                f"  = ${sale:>9.2f}  → "
+                f"{casheet_key or 'UNMAPPED TENDER':<16}")
+
+        notes = [f"tax ${tax:>7.2f}", f"meals {meal_count:>3}"]
+        if discounts:
+            notes.append(f"discount ${discounts:.2f} held")
+        if merged_from_transfer:
+            notes.append(f'merged from "{self.MERGE_SUFFIX.strip()}"')
+        line += " · " + " · ".join(notes)
+
+        self._trace_rows.setdefault((date, venue), []).append(line)
+
+    def _emit_row_traces(self):
+        """Print the collected row arithmetic, grouped venue by venue."""
+        for (date, venue), lines in self._trace_rows.items():
+            entry = self.data.get(date, {}).get(venue)
+            if entry is None:
+                continue
+            self._trace(f"┌ {venue} · {date}  ({len(lines)} row(s))")
+            for line in lines:
+                self._trace(f"│ {line}")
+            self._trace(
+                f"└ venue total: sales ${entry['total_sales']:.2f} · "
+                f"tax ${entry['total_tax']:.2f} · "
+                f"discounts held ${entry['total_discounts']:.2f} · "
+                f"meals {entry['total_count']}")
 
     def get_dates(self): return list(self.data.keys())
     def get_venues(self, date): return list(self.data.get(date, {}).keys())
