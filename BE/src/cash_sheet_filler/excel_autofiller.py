@@ -40,6 +40,10 @@ class ExcelAutofiller:
         self.wb = None
         self.ws = None
         self.tracker = tracker
+        # Set in save(): the over/short formula text, captured before the
+        # workbook round-trip drops its cached result. See _capture_over_formula.
+        self._over_formula = None
+        self._over_verified = False
 
     # ─── Logging Helpers ─────────────────────────────────────────────────
 
@@ -125,13 +129,39 @@ class ExcelAutofiller:
             f"Location '{self.location}' not found in column {location_col}")
         return False
 
+    def _capture_over_formula(self):
+        """
+        Record the over/short cell's formula text before the workbook is saved.
+
+        openpyxl writes formulas but never evaluates them, and saving a
+        workbook that was loaded with ``data_only=False`` discards the cached
+        results Excel had computed. So by the time ``checking_tenders`` reads
+        the cell back through a ``data_only=True`` reload, a formula cell is
+        ``None`` — indistinguishable from a genuinely balanced zero. Knowing
+        the cell held a formula lets us report "not verified" instead of
+        claiming a validation that never happened.
+
+        Returns the formula string, or None if the cell is not a formula.
+        """
+        over_col = CHECKING_COL_MAP.get("over")
+        if over_col is None or self.ws is None or not self.row:
+            return None
+        raw = self.ws.cell(self.row, over_col).value
+        return raw if isinstance(raw, str) and raw.startswith("=") else None
+
     def checking_tenders(self):
         """
-        Verify that tender calculations are correct by checking the 'over/short' column.
+        Verify tender calculations via the 'over/short' column.
+
+        Sets ``self._over_verified`` to record whether the check was actually
+        conclusive — a formula cell cannot be evaluated in-process, so it is
+        reported as unverified rather than silently passing.
 
         Returns:
-            bool: True if tenders balance correctly (over/short is 0 or None), False otherwise
+            bool: False only when over/short is provably non-zero or unreadable.
+                  A cell we cannot evaluate returns True (nothing to fail on).
         """
+        self._over_verified = False
         over_col = CHECKING_COL_MAP.get("over")
 
         if over_col is None:
@@ -141,19 +171,34 @@ class ExcelAutofiller:
 
         over_value = self.ws.cell(self.row, over_col).value
 
-        # Check if there's a discrepancy
-        if over_value is not None:
-            try:
-                over_amount = float(over_value)
-                if over_amount != 0:
-                    self._log_warning(
-                        f"Tender validation failed: 'over/short' is {over_amount}")
-                    return False
-            except (ValueError, TypeError):
-                self._log_error(
-                    f"Invalid value in 'over/short' column: {over_value}")
-                return False
+        if over_value is None:
+            # Empty because the cell is a formula we can't evaluate, or
+            # genuinely empty. Either way we have not verified anything.
+            if self._over_formula:
+                self._log_warning(
+                    f"{self.location}: over/short not verified — column "
+                    f"{over_col} holds a formula that Excel recalculates "
+                    "when the file is opened")
+            else:
+                self._log_warning(
+                    f"{self.location}: over/short not verified — column "
+                    f"{over_col} is empty")
+            return True
 
+        # Check if there's a discrepancy
+        try:
+            over_amount = float(over_value)
+        except (ValueError, TypeError):
+            self._log_error(
+                f"Invalid value in 'over/short' column: {over_value}")
+            return False
+
+        if over_amount != 0:
+            self._log_warning(
+                f"Tender validation failed: 'over/short' is {over_amount}")
+            return False
+
+        self._over_verified = True
         return True
 
     def filling(self, parser):
@@ -231,6 +276,10 @@ class ExcelAutofiller:
         self.wb.calculation.calcMode = 'auto'
         self.wb.calculation.fullCalcOnLoad = True
         try:
+            # Step 0: Note whether over/short is a formula — saving below
+            # discards the cached value we'd need to evaluate it.
+            self._over_formula = self._capture_over_formula()
+
             # Step 1: Save the workbook
             self.wb.save(self.xl_path)
             self._log(f"  💾 Saved: {self.location} casheet")
@@ -244,12 +293,14 @@ class ExcelAutofiller:
             # Step 3: Validate tender calculations
             is_correct = self.checking_tenders()
 
-            if is_correct:
+            if is_correct and self._over_verified:
                 self._log(
                     f"  ✓ {self.location} casheet validated successfully")
-            else:
+            elif not is_correct:
                 self._log_warning(
                     f"{self.location} validation warning - check over/short column")
+            # The inconclusive case already logged its own reason in
+            # checking_tenders — don't follow it with a "validated" line.
 
             return is_correct
 

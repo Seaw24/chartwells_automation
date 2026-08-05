@@ -8,8 +8,9 @@ into ``data[date][venue]`` and reconciles a few quirks of the Grubhub format:
 
 * Some venues have a "- Meal Transfer" sibling row whose totals must be
   merged into the base venue.
-* For Credit Card rows, Grubhub already deducted a service fee from the sale
-  amount. The cash sheet expects the gross figure, so we add the fee back.
+* For Credit Card rows, Grubhub's "Charged on Tender" figure still includes
+  the service fee it collected. That fee is not venue revenue, so we subtract
+  it back out before the amount reaches the cash sheet.
 * Discounts are reconciled later (in ``main._add_discounts``).
 * Meal count is tracked only for diagnostics. Cash-sheet order count now comes
   from the separate Sales-at-a-Glance report.
@@ -172,7 +173,8 @@ class GrubhubParser(BaseParser):
         if venue.endswith(self.MERGE_SUFFIX):
             venue = venue[: -len(self.MERGE_SUFFIX)].strip()
 
-        # subtract the service fee back for Credit Card rows.
+        # Credit Card rows arrive with Grubhub's service fee still baked into
+        # the tendered amount. Subtract it so only venue revenue is recorded.
         if payment_method == "Credit Card":
             try:
                 service_fee = self._parse_dollar(row[self.COL_SERVICE_FEE])

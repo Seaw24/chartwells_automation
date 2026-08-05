@@ -606,7 +606,10 @@ class CashSheetAutofillEngine:
 
         if len(data_list) > 1:
             label = f"{grub_date} : {', '.join(venue_names)} (combined)"
-            raw_location = "Grubhub" + ", ".join(venue_names)
+            # Just the venue names, matching the single-venue branch below.
+            # Provenance is already recorded by the DB's `source` column, and
+            # the old "Grubhub" prefix was concatenated without a separator.
+            raw_location = ", ".join(venue_names)
             merged_data = self._aggregate_data_dicts(data_list)
             venue_display = f"{venue_names[0]} +{len(venue_names) - 1} more"
         else:
