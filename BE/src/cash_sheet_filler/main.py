@@ -316,8 +316,8 @@ class CashSheetAutofillEngine:
                     "Grubhub order counts", name, "Parse failed")
                 continue
 
-            if parser.has_data():
-                self.printable_reports.add(name)
+            # Grubhub reports are autofill-only; they are never printed,
+            # so they are not added to ``printable_reports``.
             if merged is None:
                 merged = parser
             else:
@@ -574,7 +574,7 @@ class CashSheetAutofillEngine:
         if not parser.get_dates():
             self.tracker.detail("No Grubhub data found in file.")
             return
-        self.printable_reports.add(grubhub_filename)
+        # Grubhub reports are autofill-only; they are never printed.
 
         # Iterate one date at a time. Within each date we group venues that
         # share a cash sheet row so they're filled in a single pass.

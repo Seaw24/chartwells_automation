@@ -128,7 +128,9 @@ class ExcelPrinter:
         Print reports first, then cash sheets.
 
         Args:
-            reports_dir:         Folder of source reports (Infor / Tavlo / Grubhub).
+            reports_dir:         Folder of source reports. Only Infor and
+                                 Tavlo files are printed; Grubhub CSVs are
+                                 skipped (autofill-only).
             casheet_dir:         Folder of cash-sheet workbooks.
             sheet_names_by_file: ``{casheet_path: {weekday, ...}}`` — only the
                                  listed workbooks are printed, and only the
@@ -504,26 +506,19 @@ class ExcelPrinter:
             "then retry with the same printer selected."
         )
 
-    @staticmethod
-    def _is_grubhub_order_count_file(filename):
-        normalized = "".join(ch for ch in filename.lower() if ch.isalnum())
-        return normalized.startswith("salesataglance")
-
     def _print_reports_windows(self, excel, reports_dir, printable_reports):
         try:
             all_files = os.listdir(reports_dir)
         except (FileNotFoundError, PermissionError) as exc:
             raise PrinterError(f"Cannot access reports folder: {exc}") from exc
 
-        # Filter to recognized report files first.
+        # Filter to recognized report files first. Grubhub CSVs (both the
+        # TransactionDetailbyVenue export and the Sales-at-a-Glance counts
+        # file) are deliberately NOT printed — they are parsed for autofill
+        # only, so only Infor and Tavlo reports go to the printer.
         infor = [f for f in all_files
                  if f.lower().endswith(".csv") and f.startswith("Operations Report")]
         tavlo = [f for f in all_files if f.lower().endswith(".xls")]
-        grubhub = [f for f in all_files
-                   if f.lower().endswith(".csv") and f.startswith("TransactionDetailbyVenue")]
-        grubhub_counts = [f for f in all_files
-                          if f.lower().endswith(".csv")
-                          and self._is_grubhub_order_count_file(f)]
 
         # Then narrow to "had non-zero data" reports if the engine gave us a
         # filter set. ``None`` keeps the legacy behavior of printing every file
@@ -531,20 +526,14 @@ class ExcelPrinter:
         if printable_reports is not None:
             infor = [f for f in infor if f in printable_reports]
             tavlo = [f for f in tavlo if f in printable_reports]
-            grubhub = [f for f in grubhub if f in printable_reports]
-            grubhub_counts = [
-                f for f in grubhub_counts if f in printable_reports]
 
-        total_reports = (
-            len(infor) + len(tavlo) + len(grubhub) + len(grubhub_counts)
-        )
+        total_reports = len(infor) + len(tavlo)
         if total_reports == 0:
             return
 
         self._log(
             f"Printing reports — {len(infor)} Infor · "
-            f"{len(tavlo)} Tavlo · "
-            f"{len(grubhub) + len(grubhub_counts)} Grubhub",
+            f"{len(tavlo)} Tavlo (Grubhub reports are not printed)",
             kind="section")
 
         printed, failed = 0, 0
@@ -555,16 +544,6 @@ class ExcelPrinter:
         for name in tavlo:
             printed, failed = self._count_print(
                 self._print_tavlo(excel, os.path.join(reports_dir, name)),
-                printed, failed)
-        for name in grubhub:
-            printed, failed = self._count_print(
-                self._print_grubhub(excel, os.path.join(reports_dir, name)),
-                printed, failed)
-        for name in grubhub_counts:
-            printed, failed = self._count_print(
-                self._print_grubhub(
-                    excel, os.path.join(reports_dir, name),
-                    kind="Grubhub counts"),
                 printed, failed)
 
         self._log(
@@ -688,21 +667,14 @@ class ExcelPrinter:
             missing_sheet_msg="No Financials sheet",
         )
 
-    def _print_grubhub(self, excel, file_path, kind="Grubhub"):
-        return self._print_workbook(
-            excel, file_path, kind=kind,
-            sheet_picker=lambda wb: wb.ActiveSheet,
-            adjust=lambda ws: ws.UsedRange.Columns.AutoFit(),
-        )
-
     def _print_workbook(self, excel, file_path, kind, sheet_picker,
                         adjust=None, missing_sheet_msg="Sheet not found"):
         """
         Open one workbook, run an optional pre-print adjust step, and print.
 
         Returns True/False so the caller can tally printed/failed counts.
-        Pulled out of the per-source variants to avoid the same try/finally
-        boilerplate three times over.
+        Pulled out of the per-source variants to avoid duplicating the
+        same try/finally boilerplate.
         """
         filename = os.path.basename(file_path)
         wb = None

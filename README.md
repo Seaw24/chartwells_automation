@@ -31,7 +31,7 @@ A staff member used to open each report, read off sales / tax / guest counts / a
 3. **Verifies** each fill by re-reading the workbook's over/short column, and flags any source→ledger mismatch instead of letting it pass silently.
 4. **Rolls up** the filled cash sheets into a single master tender-breakdown workbook.
 5. **Logs** every record to a Postgres database, which powers a built-in **analytics dashboard** (revenue trends, payment mix, per-location ranking, meals served, flex balances).
-6. **Prints** the finished sheets to a chosen printer (Windows), **auto-updates** itself from GitHub Releases, and **tracks hours saved**.
+6. **Prints** the finished sheets and the Infor / Tavlo reports to a chosen printer (Windows; Grubhub CSVs are autofill-only and never printed), **auto-updates** itself from GitHub Releases, and **tracks hours saved**.
 
 ---
 
@@ -205,7 +205,7 @@ pyinstaller chartwells.spec --clean
 # → dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.9`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.10`) lives in [`updater.py`](BE/src/updater.py).
 
 Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code.
 
