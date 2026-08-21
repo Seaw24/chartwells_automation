@@ -324,7 +324,11 @@ class CashSheetAutofillEngine:
                 merged.merge_from(parser)
 
         if merged:
-            unmapped = merged.get_unmapped_venues()
+            unmapped = {
+                v for v in merged.get_unmapped_venues()
+                if (self._swoop_base_venue(v) or self._cyoa_base_venue(v) or v)
+                not in GRUBHUB_VENUE_MAP
+            }
             if unmapped:
                 self.tracker.warning(
                     "Unmapped Grubhub order-count venues: "
@@ -349,6 +353,10 @@ class CashSheetAutofillEngine:
         if data.get("total_sales", 0):
             return True
         if data.get("count") or 0:
+            return True
+        if data.get("swoop_swap") or 0:
+            return True
+        if data.get("cyoa") or 0:
             return True
         if any(data.get("tenders", {}).values()):
             return True
@@ -537,20 +545,37 @@ class CashSheetAutofillEngine:
 
     def _aggregate_data_dicts(self, data_list):
         """Sum multiple data dicts that target the same cash-sheet row."""
+        # Sibling venues (Swoop Swap / Choose Your Own Adventure) never
+        # contribute to the regular count cell, so a group with only siblings
+        # leaves it None (untouched).
+        has_normal = any(
+            not d.get("is_swoop") and not d.get("is_cyoa") for d in data_list)
         merged = {
             "date": data_list[0]["date"],
-            "count": 0,
+            "count": 0 if has_normal else None,
+            "swoop_swap": None,
+            "cyoa": None,
             "total_sales": 0.0,
             "tax": 0.0,
             "tenders": {},
             "discounts": 0.0,
         }
         for d in data_list:
-            count = d.get("count")
-            if count is None:
-                merged["count"] = None
-            elif merged["count"] is not None:
-                merged["count"] += count
+            if d.get("is_swoop"):
+                swoop = d.get("swoop_swap")
+                if swoop is not None:
+                    merged["swoop_swap"] = (
+                        merged["swoop_swap"] or 0) + swoop
+            elif d.get("is_cyoa"):
+                cyoa = d.get("cyoa")
+                if cyoa is not None:
+                    merged["cyoa"] = (merged["cyoa"] or 0.0) + cyoa
+            else:
+                count = d.get("count")
+                if count is None:
+                    merged["count"] = None
+                elif merged["count"] is not None:
+                    merged["count"] += count
             merged["total_sales"] += d.get("total_sales", 0.0)
             merged["tax"] += d.get("tax", 0.0)
             merged["discounts"] += d.get("discounts", 0.0)
@@ -600,7 +625,13 @@ class CashSheetAutofillEngine:
 
         # Surface anything we saw but couldn't map. These don't fail the run
         # but are useful hints for the user to update their config.
-        unmapped_v = parser.get_unmapped_venues()
+        # Sibling venues resolve through their base venue's map entry, so
+        # only report venues that are unmapped even after that fallback.
+        unmapped_v = {
+            v for v in parser.get_unmapped_venues()
+            if (self._swoop_base_venue(v) or self._cyoa_base_venue(v) or v)
+            not in GRUBHUB_VENUE_MAP
+        }
         unmapped_t = parser.get_unmapped_tenders()
         if unmapped_v:
             self.tracker.warning(f"Unmapped venues: {', '.join(unmapped_v)}")
@@ -616,13 +647,20 @@ class CashSheetAutofillEngine:
         """
         date_groups = {}
         for venue in venues:
-            if venue not in GRUBHUB_VENUE_MAP:
+            # Sibling venues reuse the base venue's config entry and land on
+            # the same cash-sheet row, but contribute to a different column:
+            #   "X - Swoop Swap Shop"            → order count → Swoop Swap (G)
+            #   "X - Choose Your Own Adventure"  → total sales → 1,2,3 (H)
+            swoop_base = self._swoop_base_venue(venue)
+            cyoa_base = self._cyoa_base_venue(venue)
+            map_name = swoop_base or cyoa_base or venue
+            if map_name not in GRUBHUB_VENUE_MAP:
                 self.tracker.add_failure(
                     venue, grubhub_filename,
                     "Venue not in GRUBHUB_VENUE_MAP")
                 continue
 
-            casheet_pattern, loc_in_casheet, loc_in_db = GRUBHUB_VENUE_MAP[venue]
+            casheet_pattern, loc_in_casheet, loc_in_db = GRUBHUB_VENUE_MAP[map_name]
             casheet_file = self.find_casheet_file(casheet_pattern)
             if casheet_file is None:
                 self.tracker.add_failure(
@@ -633,21 +671,56 @@ class CashSheetAutofillEngine:
             casheet_path = os.path.join(self.casheet_dir, casheet_file)
             data = parser.get_data_dict(grub_date, venue)
             data["date"] = grub_date
-            data["count"] = (
-                order_counts.get_count(grub_date, venue)
-                if order_counts else None
-            )
+            data["is_swoop"] = swoop_base is not None
+            data["is_cyoa"] = cyoa_base is not None
+            data["count"] = None
+            data["swoop_swap"] = None
+            data["cyoa"] = None
+            if data["is_swoop"]:
+                value = (order_counts.get_count(grub_date, venue)
+                         if order_counts else None)
+                data["swoop_swap"] = value
+                missing_bucket = "missing_swoop"
+            elif data["is_cyoa"]:
+                value = (order_counts.get_sales(grub_date, venue)
+                         if order_counts else None)
+                data["cyoa"] = value
+                missing_bucket = "missing_cyoa"
+            else:
+                value = (order_counts.get_count(grub_date, venue)
+                         if order_counts else None)
+                data["count"] = value
+                missing_bucket = "missing_counts"
 
             key = (casheet_path, loc_in_casheet, loc_in_db)
             grp = date_groups.setdefault(
                 key,
-                {"venues": [], "data_list": [], "missing_counts": []},
+                {"venues": [], "data_list": [], "missing_counts": [],
+                 "missing_swoop": [], "missing_cyoa": []},
             )
             grp["venues"].append(venue)
             grp["data_list"].append(data)
-            if data["count"] is None:
-                grp["missing_counts"].append(venue)
+            if value is None:
+                grp[missing_bucket].append(venue)
         return date_groups
+
+    @staticmethod
+    def _sibling_base_venue(venue, suffix):
+        """Strip a sibling-venue *suffix*; None if the venue doesn't carry it."""
+        clean = venue.strip()
+        if not clean.lower().endswith(suffix):
+            return None
+        return clean[: -len(suffix)].strip(" -") or None
+
+    @classmethod
+    def _swoop_base_venue(cls, venue):
+        """'City Edge - Swoop Swap Shop' -> 'City Edge'; else None."""
+        return cls._sibling_base_venue(venue, "swoop swap shop")
+
+    @classmethod
+    def _cyoa_base_venue(cls, venue):
+        """'Basecamp - Choose Your Own Adventure' -> 'Basecamp'; else None."""
+        return cls._sibling_base_venue(venue, "choose your own adventure")
 
     def _trace_grubhub_group(self, grub_date, loc_in_casheet, loc_in_db,
                              venue_names, data_list, merged, disc, disc_before):
@@ -675,15 +748,29 @@ class CashSheetAutofillEngine:
             else:
                 t.trace(f"│ {label:<12}: {fmt(total)}")
 
-        counts = [d.get("count") for d in data_list]
+        counts = [d.get("count") for d in data_list
+                  if not d.get("is_swoop") and not d.get("is_cyoa")]
         if any(c is None for c in counts):
             t.trace(f"│ {'order count':<12}: missing for "
                     f"{sum(1 for c in counts if c is None)} venue(s) "
                     "— count cell will be left unchanged")
-        else:
+        elif counts:
             sum_line("order count", counts, sum(counts), money=False)
         t.trace("│               (order counts come from Sales-at-a-Glance, "
                 "not the tender report)")
+
+        swoops = [d.get("swoop_swap") for d in data_list
+                  if d.get("swoop_swap") is not None]
+        if swoops:
+            sum_line("swoop swap", swoops, sum(swoops), money=False)
+            t.trace("│               (Swoop Swap Shop counts → column G)")
+
+        cyoas = [d.get("cyoa") for d in data_list
+                 if d.get("cyoa") is not None]
+        if cyoas:
+            sum_line("1,2,3", cyoas, sum(cyoas))
+            t.trace("│               (Choose Your Own Adventure sales "
+                    "→ column H)")
 
         # total_sales already includes the discount at this point, so subtract
         # it back out to show the pre-fold contributions honestly.
@@ -717,6 +804,8 @@ class CashSheetAutofillEngine:
         venue_names = grp["venues"]
         data_list = grp["data_list"]
         missing_counts = grp.get("missing_counts", [])
+        missing_swoop = grp.get("missing_swoop", [])
+        missing_cyoa = grp.get("missing_cyoa", [])
 
         if len(data_list) > 1:
             label = f"{grub_date} : {', '.join(venue_names)} (combined)"
@@ -743,15 +832,31 @@ class CashSheetAutofillEngine:
                 "Missing Grubhub order count for "
                 f"{', '.join(missing_counts)} on {grub_date}; "
                 "count cell left unchanged.")
+        if missing_swoop:
+            merged_data["swoop_swap"] = None
+            self.tracker.warning(
+                "Missing Grubhub order count for "
+                f"{', '.join(missing_swoop)} on {grub_date}; "
+                "Swoop Swap cell left unchanged.")
+        if missing_cyoa:
+            merged_data["cyoa"] = None
+            self.tracker.warning(
+                "Missing Grubhub merchant sales for "
+                f"{', '.join(missing_cyoa)} on {grub_date}; "
+                "1,2,3 cell left unchanged.")
 
         # One compact summary line per cash row before we fill.
         sales = merged_data.get("total_sales", 0)
         tax = merged_data.get("tax", 0)
         count = merged_data.get("count", 0)
         count_text = count if count is not None else "not filled"
-        self.tracker.detail(
-            f"{venue_display:<40} ${sales:>9.2f}  tax ${tax:>6.2f}  "
-            f"count {count_text}")
+        line = (f"{venue_display:<40} ${sales:>9.2f}  tax ${tax:>6.2f}  "
+                f"count {count_text}")
+        if merged_data.get("swoop_swap") is not None:
+            line += f"  swoop {merged_data['swoop_swap']}"
+        if merged_data.get("cyoa") is not None:
+            line += f"  1,2,3 ${merged_data['cyoa']:.2f}"
+        self.tracker.detail(line)
 
         self.fill_and_save(
             casheet_path, loc_in_casheet, raw_location, loc_in_db,

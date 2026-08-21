@@ -5,6 +5,10 @@ This report is the source of truth for Grubhub order counts. The older
 TransactionDetailbyVenuebyPaymentMethod report still supplies sales, tax,
 discounts, and tender breakdown values, but its meal-count column is not used
 for the cash-sheet order-count cell.
+
+Total Merchant Sales is also collected per venue — "... - Choose Your Own
+Adventure" sibling venues contribute that figure to the cash sheet's
+"1,2,3" column instead of an order count.
 """
 
 import csv
@@ -19,6 +23,7 @@ class GrubhubOrderCountParser(BaseParser):
 
     COL_DATE = 0
     COL_VENUE = 3
+    COL_TOTAL_SALES = 7
     COL_ORDER_COUNT = 8
     MERGE_SUFFIX = " - Meal Transfer"
 
@@ -26,6 +31,7 @@ class GrubhubOrderCountParser(BaseParser):
         super().__init__(tracker)
         self.file_path = file_path
         self.data = {}
+        self.sales = {}
         self._unmapped_venues = set()
         self._order_total = 0
         self._row_count = 0
@@ -36,6 +42,15 @@ class GrubhubOrderCountParser(BaseParser):
         if not clean_val:
             return 0
         return int(float(clean_val))
+
+    @staticmethod
+    def _parse_dollar(value):
+        clean_val = str(value).strip().replace("$", "").replace(",", "")
+        if not clean_val:
+            return 0.0
+        if clean_val.startswith("(") and clean_val.endswith(")"):
+            clean_val = "-" + clean_val[1:-1]
+        return float(clean_val)
 
     def normalize_date(self, date_str):
         for fmt in ("%m-%d-%y", "%m/%d/%Y", "%m-%d-%Y"):
@@ -76,6 +91,7 @@ class GrubhubOrderCountParser(BaseParser):
         col_map = {
             "order date": "COL_DATE",
             "venue": "COL_VENUE",
+            "total merchant sales": "COL_TOTAL_SALES",
             "order count": "COL_ORDER_COUNT",
         }
         for name, attr in col_map.items():
@@ -93,7 +109,8 @@ class GrubhubOrderCountParser(BaseParser):
                 self._log_warning(f"Column '{name}' not found in header")
 
     def _process_row(self, i, row):
-        max_idx = max(self.COL_DATE, self.COL_VENUE, self.COL_ORDER_COUNT)
+        max_idx = max(self.COL_DATE, self.COL_VENUE, self.COL_TOTAL_SALES,
+                      self.COL_ORDER_COUNT)
         if len(row) <= max_idx:
             return
 
@@ -104,6 +121,7 @@ class GrubhubOrderCountParser(BaseParser):
         try:
             date = self.normalize_date(date_str)
             count = self._parse_int(row[self.COL_ORDER_COUNT])
+            sale = self._parse_dollar(row[self.COL_TOTAL_SALES])
         except ValueError:
             self._log_warning(f"Order-count parsing error in row {i}: {row[:4]}...")
             return
@@ -117,6 +135,8 @@ class GrubhubOrderCountParser(BaseParser):
 
         self.data.setdefault(date, {})
         self.data[date][venue] = self.data[date].get(venue, 0) + count
+        self.sales.setdefault(date, {})
+        self.sales[date][venue] = self.sales[date].get(venue, 0.0) + sale
         self._order_total += count
         self._row_count += 1
 
@@ -128,6 +148,10 @@ class GrubhubOrderCountParser(BaseParser):
             target = self.data.setdefault(date, {})
             for venue, count in venues.items():
                 target[venue] = target.get(venue, 0) + count
+        for date, venues in other.sales.items():
+            target = self.sales.setdefault(date, {})
+            for venue, sale in venues.items():
+                target[venue] = target.get(venue, 0.0) + sale
         self._unmapped_venues.update(other.get_unmapped_venues())
         self._order_total += other._order_total
         self._row_count += other._row_count
@@ -141,6 +165,9 @@ class GrubhubOrderCountParser(BaseParser):
 
     def get_count(self, date, venue):
         return self.data.get(date, {}).get(venue)
+
+    def get_sales(self, date, venue):
+        return self.sales.get(date, {}).get(venue)
 
     def get_dates(self):
         return list(self.data.keys())

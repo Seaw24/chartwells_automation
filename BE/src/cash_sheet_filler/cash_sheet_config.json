@@ -104,13 +104,18 @@
       "csfs",
       "foodcourt 1",
       "Union Food Court"
+    ],
+    "Urban Bytes at Kahlert Village": [
+      "kv",
+      "Tavlo",
+      "Kahlert"
     ]
   },
   "grubhub_venue_map": {
     "City Edge": [
-      "City_s Edge",
+      "City's Edge",
       "grubhub",
-      "City Edge Cafe"
+      "City Edge's Cafe"
     ],
     "Crimson View": [
       "cv",
@@ -126,6 +131,26 @@
       "Epicenter",
       "grubhub",
       "Epicenter Market"
+    ],
+    "Qdoba": [
+      "TrailheadQDBA",
+      "grubhub",
+      "Trailhead QDBA"
+    ],
+    "All Pho U": [
+      "TrailheadHotPot",
+      "grubhub",
+      "Trailhead HotPot"
+    ],
+    "The Other Side Donuts": [
+      "TrailheadCafe",
+      "grubhub",
+      "The Other Side Donuts"
+    ],
+    "Basecamp": [
+      "TrailheadMarketplace",
+      "grubhub",
+      "Trailhead Marketplace"
     ],
     "Hive Express": [
       "HECS",
@@ -145,7 +170,7 @@
     "Urban Bytes": [
       "KV",
       "grubhub",
-      "Kahlert"
+      "Kahlert 1"
     ],
     "Absurd Bird": [
       "gardner",
@@ -206,33 +231,65 @@
       "UnionShakeSmart",
       "grubhub",
       "Union Shake Smart"
+    ],
+    "Burger 801": [
+      "csfs",
+      "grubhub",
+      "Union Food Court"
+    ],
+    "Crimson Corner Market": [
+      "Crimson Corner",
+      "grubhub",
+      "Crimson Corner"
+    ],
+    "Morning Ground": [
+      "SchoolOfMedicine",
+      "grubhub",
+      "SOM"
+    ],
+    "Morning Grounds": [
+      "SchoolOfMedicine",
+      "grubhub",
+      "SOM"
+    ],
+    "521 Cafe": [
+      "SchoolOfMedicine",
+      "grubhub",
+      "SOM"
+    ],
+    "521 Kitchen": [
+      "SchoolOfMedicine",
+      "grubhub",
+      "SOM"
     ]
   },
   "fill_col_map": {
-    "date": 21,
+    "date": 22,
     "count": 1,
     "location": 2,
     "total_sales": 3,
     "contract_card": 4,
     "flex": 6,
-    "transfer": 7,
-    "coupons": 8,
-    "ucash": 11,
-    "chartwellsDCB": 12,
-    "dining_dollars": 13,
-    "ushop": 14,
-    "amex": 16,
-    "discover": 17,
-    "mc": 18,
-    "visa": 19,
+    "swoop_swap": 7,
+    "transfer": 8,
+    "cyoa": 8,
+    "coupons": 9,
+    "ucash": 12,
+    "chartwellsDCB": 13,
+    "dining_dollars": 14,
+    "ushop": 15,
+    "amex": 17,
+    "discover": 18,
+    "mc": 19,
+    "visa": 20,
     "tax": 3
   },
   "checking_col_map": {
-    "cash overings": 8,
-    "adj cash sales": 9,
-    "cash sales": 18,
-    "cash for deposit": 19,
-    "over": 20
+    "cash overings": 10,
+    "adj cash sales": 11,
+    "cash sales": 21,
+    "cash for deposit": 22,
+    "over": 23
   },
   "infor_tenders": {
     "AT Contract Card": "contract_card",
@@ -256,6 +313,11 @@
     "Contract Card": "contract_card",
     "Flex": "flex",
     "Flex UID": "flex",
+    "To Go Meal Swipe": "transfer",
+    "Meal Swipe": "transfer",
+    "AT ToGoBox Checkout": "transfer",
+    "AT ToGoBox Return": "transfer",
+    "Guest Pass": "transfer",
     "Transfer Meal": "transfer",
     "Meal Transfer": "transfer",
     "Meal Transfer UID": "transfer",
@@ -263,12 +325,13 @@
     "UCash": "ucash",
     "UShop": "ushop",
     "ChartwellsDCB": "chartwellsDCB",
-    "Dining Dollars": "dining_dollars",
+    "AT Dining Dollars": "dining_dollars",
     "AMEX": "amex",
     "Discover": "discover",
     "DCVR": "discover",
     "M/C": "mc",
-    "VISA": "visa"
+    "VISA": "visa",
+    "Dining Dollars": "dining_dollars"
   },
   "grubhub_tenders": {
     "Contract Card": "contract_card",
