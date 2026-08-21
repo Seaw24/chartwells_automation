@@ -25,9 +25,12 @@ from .tavlo_parser import TavloParser
 from .grubhub_parser import GrubhubParser
 from .grubhub_order_count_parser import GrubhubOrderCountParser
 from .excel_autofiller import ExcelAutofiller
+from openpyxl.utils import get_column_letter
+
 from .config import (
     REPORTS_CASHSHEET_MAP,
     GRUBHUB_VENUE_MAP,
+    FILL_COL_MAP,
     REPORTS_FOLDER,
     CASH_SHEET_FOLDER,
     VERBOSE_TRACE,
@@ -315,6 +318,7 @@ class CashSheetAutofillEngine:
                 self.tracker.add_failure(
                     "Grubhub order counts", name, "Parse failed")
                 continue
+            self._trace_order_counts(parser)
 
             # Grubhub reports are autofill-only; they are never printed,
             # so they are not added to ``printable_reports``.
@@ -334,6 +338,49 @@ class CashSheetAutofillEngine:
                     "Unmapped Grubhub order-count venues: "
                     f"{', '.join(sorted(unmapped))}")
         return merged
+
+    def _trace_order_counts(self, parser):
+        """
+        Show what one Sales-at-a-Glance file contributes, venue by venue.
+
+        Each line names the figure taken from the report and the cash-sheet
+        column it will land in, so the log reads as "this number goes there":
+        regular venues feed the count column, Swoop Swap siblings feed the
+        Swoop Swap column, and Choose Your Own Adventure siblings contribute
+        their merchant sales to the 1,2,3 column. Venues with no mapping
+        (directly or through their base venue) are flagged inline.
+        """
+        if not VERBOSE_TRACE:
+            return
+
+        def col(key):
+            idx = FILL_COL_MAP.get(key)
+            return get_column_letter(idx) if idx else "?"
+
+        t = self.tracker
+        for date in parser.get_dates():
+            venues = parser.get_venues(date)
+            t.trace(f"┌ Sales-at-a-Glance · {date}  ({len(venues)} venue(s))")
+            total = 0
+            for venue in venues:
+                count = parser.get_count(date, venue) or 0
+                total += count
+                swoop_base = self._swoop_base_venue(venue)
+                cyoa_base = self._cyoa_base_venue(venue)
+                if swoop_base:
+                    value = f"{count:>10} order(s)"
+                    dest = f"→ Swoop Swap ({col('swoop_swap')}) on '{swoop_base}' row"
+                elif cyoa_base:
+                    sales = parser.get_sales(date, venue) or 0.0
+                    value = f"${sales:>9.2f} sales"
+                    dest = f"→ 1,2,3 ({col('cyoa')}) on '{cyoa_base}' row"
+                else:
+                    value = f"{count:>10} order(s)"
+                    dest = f"→ count ({col('count')})"
+                mapped = (swoop_base or cyoa_base or venue) in GRUBHUB_VENUE_MAP
+                note = "" if mapped else "   ⚠ no venue mapping"
+                t.trace(f"│ {venue:<44} {value}  {dest}{note}")
+            t.trace(f"└ {total} order(s) on {date}")
 
     def _get_weekday_name(self, date_str):
         """Convert a date string (e.g. MM/DD/YYYY) to its weekday name."""
