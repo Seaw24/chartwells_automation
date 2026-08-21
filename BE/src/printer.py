@@ -301,14 +301,74 @@ class ExcelPrinter:
             self._set_devmode_attr(devmode, "Fields", fields | field_flag)
         return self._set_devmode_attr(devmode, attr, value)
 
+    @staticmethod
+    def _read_driver_devmode(win32print, handle):
+        """
+        Return the devmode carrying this user's printing defaults.
+
+        Prefers the per-user defaults (GetPrinter level 9) because those can
+        be written back without administrator rights; falls back to the
+        printer's global defaults (level 2) when no per-user copy exists yet.
+        """
+        devmode = None
+        try:
+            devmode = win32print.GetPrinter(handle, 9).get("pDevMode")
+        except Exception:
+            devmode = None
+        if devmode is None:
+            devmode = win32print.GetPrinter(handle, 2).get("pDevMode")
+        return devmode
+
+    @staticmethod
+    def _validate_devmode(win32print, handle, name, devmode):
+        """Let the driver merge/validate devmode changes (per SetPrinter docs)."""
+        try:
+            import win32con
+            flags = (getattr(win32con, "DM_IN_BUFFER", 8)
+                     | getattr(win32con, "DM_OUT_BUFFER", 2))
+            win32print.DocumentProperties(
+                0, handle, name, devmode, devmode, flags)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _write_driver_devmode(win32print, handle, name, devmode):
+        """
+        Persist ``devmode`` as the printing defaults Excel will pick up.
+
+        Per-user defaults (SetPrinter level 9) come first: they live in the
+        user's registry and need only normal printer access, so standard
+        Windows accounts can enable duplex without elevation. Only if that
+        fails do we touch the printer's global defaults (level 2), which
+        require manage-printer permission.
+        """
+        try:
+            win32print.SetPrinter(handle, 9, {"pDevMode": devmode}, 0)
+            return
+        except Exception:
+            pass
+
+        admin_handle = win32print.OpenPrinter(
+            name, {"DesiredAccess": win32print.PRINTER_ALL_ACCESS})
+        try:
+            info = win32print.GetPrinter(admin_handle, 2)
+            info["pDevMode"] = devmode
+            # SetPrinter rejects a non-NULL security descriptor unless the
+            # caller can also rewrite the printer's ACL, so never send it back.
+            info["pSecurityDescriptor"] = None
+            win32print.SetPrinter(admin_handle, 2, info, 0)
+        finally:
+            win32print.ClosePrinter(admin_handle)
+
     def _apply_windows_driver_print_settings(self):
         """
         Apply printer-driver settings Excel does not expose directly.
 
         Excel PageSetup handles paper/orientation/black-and-white at the sheet
         level and PrintOut handles copies/collate. Duplex is a Windows printer
-        driver setting, so we temporarily set it on the effective printer and
-        restore the previous values after the batch.
+        driver setting, so we temporarily set it as the current user's
+        printing defaults (no admin rights needed) and restore the previous
+        values after the batch.
         """
         handle = None
         try:
@@ -317,8 +377,7 @@ class ExcelPrinter:
 
             name = self._get_effective_windows_printer_name()
             handle = self._open_windows_printer(win32print, name)
-            info = win32print.GetPrinter(handle, 2)
-            devmode = info.get("pDevMode")
+            devmode = self._read_driver_devmode(win32print, handle)
             if devmode is None:
                 self._log(
                     f"Printer '{name}' has no editable driver settings.",
@@ -354,8 +413,8 @@ class ExcelPrinter:
             if not changed:
                 return
 
-            info["pDevMode"] = devmode
-            win32print.SetPrinter(handle, 2, info, 0)
+            self._validate_devmode(win32print, handle, name, devmode)
+            self._write_driver_devmode(win32print, handle, name, devmode)
             self._printer_driver_original = (name, original)
             self._log(
                 f"Printer options applied: {', '.join(changed)}",
@@ -363,6 +422,7 @@ class ExcelPrinter:
         except Exception as exc:
             self._log(
                 f"WARNING: Could not apply printer driver options: {exc}. "
+                "Double-sided/color selections may not take effect; "
                 "Excel page settings will still be applied.",
                 kind="warning")
         finally:
@@ -382,8 +442,7 @@ class ExcelPrinter:
             import win32print
 
             handle = self._open_windows_printer(win32print, name)
-            info = win32print.GetPrinter(handle, 2)
-            devmode = info.get("pDevMode")
+            devmode = self._read_driver_devmode(win32print, handle)
             if devmode is None:
                 return
 
@@ -395,8 +454,7 @@ class ExcelPrinter:
             if fields is not None:
                 self._set_devmode_attr(devmode, "Fields", fields)
 
-            info["pDevMode"] = devmode
-            win32print.SetPrinter(handle, 2, info, 0)
+            self._write_driver_devmode(win32print, handle, name, devmode)
             self._log("Restored printer driver options.", kind="detail")
         except Exception as exc:
             self._log(
