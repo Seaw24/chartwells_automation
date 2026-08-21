@@ -38,6 +38,53 @@ from .config import (
 from ..utils import strip_accents
 
 
+def _normalize_venue(name):
+    """Casefold and collapse whitespace so sloppy report spellings match."""
+    return " ".join(name.split()).casefold()
+
+
+def _compact_venue(name):
+    """Only casefolded letters/digits — spelling skeleton for fuzzy matching."""
+    return "".join(ch for ch in name.casefold() if ch.isalnum())
+
+
+def _is_subsequence(short, long):
+    """True if *short*'s characters appear in *long* in order."""
+    it = iter(long)
+    return all(ch in it for ch in short)
+
+
+# Normalized views of GRUBHUB_VENUE_MAP, built once at import time, so venue
+# lookups survive case, whitespace, and light misspellings in Grubhub's
+# hand-typed names.
+_GRUBHUB_VENUE_MAP_NORM = {
+    _normalize_venue(k): v for k, v in GRUBHUB_VENUE_MAP.items()
+}
+_GRUBHUB_VENUE_MAP_COMPACT = {
+    _compact_venue(k): v for k, v in GRUBHUB_VENUE_MAP.items()
+}
+
+
+def _fuzzy_venue_map_entry(venue):
+    """
+    Last-resort venue lookup for misspelled names like "QDBA" → "Qdoba".
+
+    A venue matches a map key when one compact form is a subsequence of the
+    other (letters in order, a few dropped — vowel-skipping abbreviations),
+    they are close in length, and exactly one key matches. Anything looser
+    would risk landing numbers on the wrong register row.
+    """
+    compact = _compact_venue(venue)
+    if len(compact) < 3:
+        return None
+    matches = [
+        entry for key, entry in _GRUBHUB_VENUE_MAP_COMPACT.items()
+        if abs(len(key) - len(compact)) <= 2
+        and (_is_subsequence(compact, key) or _is_subsequence(key, compact))
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 # ═══════════════════════════════════════════════════════════════
 #  PROCESSING TRACKER
 # ═══════════════════════════════════════════════════════════════
@@ -353,8 +400,7 @@ class CashSheetAutofillEngine:
         if merged:
             unmapped = {
                 v for v in merged.get_unmapped_venues()
-                if (self._swoop_base_venue(v) or self._cyoa_base_venue(v) or v)
-                not in GRUBHUB_VENUE_MAP
+                if not self._resolves_in_venue_map(v)
             }
             if unmapped:
                 self.tracker.warning(
@@ -400,7 +446,8 @@ class CashSheetAutofillEngine:
                 else:
                     value = f"{count:>10} order(s)"
                     dest = f"→ count ({col('count')})"
-                mapped = (swoop_base or cyoa_base or venue) in GRUBHUB_VENUE_MAP
+                mapped = self._venue_map_entry(
+                    swoop_base or cyoa_base or venue) is not None
                 note = "" if mapped else "   ⚠ no venue mapping"
                 t.trace(f"│ {venue:<44} {value}  {dest}{note}")
             t.trace(f"└ {total} order(s) on {date}")
@@ -699,8 +746,7 @@ class CashSheetAutofillEngine:
         # only report venues that are unmapped even after that fallback.
         unmapped_v = {
             v for v in parser.get_unmapped_venues()
-            if (self._swoop_base_venue(v) or self._cyoa_base_venue(v) or v)
-            not in GRUBHUB_VENUE_MAP
+            if not self._resolves_in_venue_map(v)
         }
         unmapped_t = parser.get_unmapped_tenders()
         if unmapped_v:
@@ -724,13 +770,14 @@ class CashSheetAutofillEngine:
             swoop_base = self._swoop_base_venue(venue)
             cyoa_base = self._cyoa_base_venue(venue)
             map_name = swoop_base or cyoa_base or venue
-            if map_name not in GRUBHUB_VENUE_MAP:
+            entry = self._venue_map_entry(map_name)
+            if entry is None:
                 self.tracker.add_failure(
                     venue, grubhub_filename,
                     "Venue not in GRUBHUB_VENUE_MAP")
                 continue
 
-            casheet_pattern, loc_in_casheet, loc_in_db = GRUBHUB_VENUE_MAP[map_name]
+            casheet_pattern, loc_in_casheet, loc_in_db = entry
             casheet_file = self.find_casheet_file(casheet_pattern)
             if casheet_file is None:
                 self.tracker.add_failure(
@@ -776,11 +823,30 @@ class CashSheetAutofillEngine:
 
     @staticmethod
     def _sibling_base_venue(venue, suffix):
-        """Strip a sibling-venue *suffix*; None if the venue doesn't carry it."""
-        clean = venue.strip()
+        """
+        Strip a sibling-venue *suffix*; None if the venue doesn't carry it.
+
+        Grubhub venue names are hand-typed, so tolerate stray separators
+        around the suffix — e.g. "QDBA - Swoop Swap Shop -" still yields
+        "QDBA".
+        """
+        clean = venue.strip().rstrip(" -–—").strip()
         if not clean.lower().endswith(suffix):
             return None
-        return clean[: -len(suffix)].strip(" -") or None
+        return clean[: -len(suffix)].strip(" -–—") or None
+
+    @staticmethod
+    def _venue_map_entry(venue):
+        """GRUBHUB_VENUE_MAP lookup tolerant of case/whitespace differences."""
+        entry = GRUBHUB_VENUE_MAP.get(venue)
+        if entry is None:
+            entry = _GRUBHUB_VENUE_MAP_NORM.get(_normalize_venue(venue))
+        return entry
+
+    def _resolves_in_venue_map(self, venue):
+        """True if the venue, or its sibling base, has a map entry."""
+        base = self._swoop_base_venue(venue) or self._cyoa_base_venue(venue)
+        return self._venue_map_entry(base or venue) is not None
 
     @classmethod
     def _swoop_base_venue(cls, venue):

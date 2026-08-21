@@ -163,11 +163,30 @@ class GrubhubOrderCountParser(BaseParser):
             for count in venues.values()
         )
 
+    @staticmethod
+    def _normalize_venue(name):
+        """
+        Casefold, collapse whitespace, and drop stray edge separators, so
+        hand-typed names match across reports ("Qdoba - Swoop Swap Shop -"
+        vs "Qdoba - Swoop Swap Shop").
+        """
+        return " ".join(name.split()).casefold().strip(" -–—")
+
+    def _lookup(self, source, date, venue):
+        venues = source.get(date, {})
+        if venue in venues:
+            return venues[venue]
+        norm = self._normalize_venue(venue)
+        for name, value in venues.items():
+            if self._normalize_venue(name) == norm:
+                return value
+        return None
+
     def get_count(self, date, venue):
-        return self.data.get(date, {}).get(venue)
+        return self._lookup(self.data, date, venue)
 
     def get_sales(self, date, venue):
-        return self.sales.get(date, {}).get(venue)
+        return self._lookup(self.sales, date, venue)
 
     def get_dates(self):
         return list(self.data.keys())
