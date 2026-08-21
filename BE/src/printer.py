@@ -132,9 +132,10 @@ class ExcelPrinter:
                                  Tavlo files are printed; Grubhub CSVs are
                                  skipped (autofill-only).
             casheet_dir:         Folder of cash-sheet workbooks.
-            sheet_names_by_file: ``{casheet_path: {weekday, ...}}`` — only the
-                                 listed workbooks are printed, and only the
-                                 listed weekday tabs within each.
+            sheet_names_by_file: ``{casheet_path: {sheet name, ...}}`` — only
+                                 the listed workbooks are printed, and only the
+                                 listed tabs within each (weekday tabs, plus
+                                 "Totals" on Friday runs).
             printable_reports:   Set of report filenames (basenames) that had
                                  non-zero data and should be printed. Reports
                                  whose names aren't in this set are skipped.
@@ -630,8 +631,19 @@ class ExcelPrinter:
             try:
                 wb = excel.Workbooks.Open(os.path.abspath(xlsx_path))
                 ws_map = {ws.Name.lower(): ws for ws in wb.Worksheets}
+                # The Totals sheet sums the weekday tabs by formula, so make
+                # sure Excel recalculates against the freshly saved figures
+                # before it hits the page.
+                if any(n.lower() == "totals" for n in sheet_names):
+                    try:
+                        excel.CalculateFull()
+                    except Exception:
+                        pass
                 count = 0
-                for name in sheet_names:
+                # Weekday tabs first, Totals last, in a stable order.
+                ordered = sorted(
+                    sheet_names, key=lambda n: (n.lower() == "totals", n))
+                for name in ordered:
                     target = ws_map.get(name.lower())
                     if target:
                         target.Select()

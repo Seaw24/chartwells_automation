@@ -280,7 +280,7 @@ class CashSheetAutofillEngine:
             printer.print_all(
                 self.reports_dir,
                 self.casheet_dir,
-                self.filled_days_by_file,
+                self._build_print_map(),
                 self.printable_reports,
             )
         elif self.auto_print:
@@ -291,6 +291,29 @@ class CashSheetAutofillEngine:
     # ═══════════════════════════════════════════════════════════════
     #  HELPERS
     # ═══════════════════════════════════════════════════════════════
+
+    def _build_print_map(self):
+        """
+        Return {casheet_path: {sheet names}} for the auto-print batch.
+
+        Starts from the weekday tabs that were filled this run. When Friday
+        is among them, the weekly Totals sheet of EVERY cash-sheet workbook
+        in the folder is added — including workbooks nothing was filled into
+        — because Friday closes the week. The workbooks were already saved
+        during autofill, so the Totals formulas pick up the new figures when
+        Excel opens each file to print.
+        """
+        print_map = {path: set(days)
+                     for path, days in self.filled_days_by_file.items()}
+        if any("Friday" in days for days in print_map.values()):
+            self.tracker.log(
+                "Friday was filled — printing the Totals sheet "
+                "for every location.")
+            for f in self.casheet_files:
+                if f.lower().endswith(".xlsx") and not f.startswith("~$"):
+                    path = os.path.join(self.casheet_dir, f)
+                    print_map.setdefault(path, set()).add("Totals")
+        return print_map
 
     def _stopped(self, stage):
         """Return True (and emit one line) if the user pressed Stop."""
