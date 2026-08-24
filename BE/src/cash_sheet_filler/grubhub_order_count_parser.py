@@ -8,7 +8,7 @@ for the cash-sheet order-count cell.
 
 Total Merchant Sales is also collected per venue — "... - Choose Your Own
 Adventure" sibling venues contribute that figure to the cash sheet's
-"1,2,3" column instead of an order count.
+"1M Meal" column instead of an order count.
 """
 
 import csv

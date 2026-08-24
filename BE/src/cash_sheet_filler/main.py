@@ -414,9 +414,11 @@ class CashSheetAutofillEngine:
 
         Each line names the figure taken from the report and the cash-sheet
         column it will land in, so the log reads as "this number goes there":
-        regular venues feed the count column, Swoop Swap siblings feed the
-        Swoop Swap column, and Choose Your Own Adventure siblings contribute
-        their merchant sales to the 1,2,3 column. Venues with no mapping
+        regular venues feed the count column, and Choose Your Own Adventure
+        siblings contribute their merchant sales to the 1M Meal column.
+        Swoop Swap siblings are listed for reference only — their dollars
+        (sales + the base venue's meal transfers) come from the tender
+        report and land in the Less-transfer column. Venues with no mapping
         (directly or through their base venue) are flagged inline.
         """
         if not VERBOSE_TRACE:
@@ -438,11 +440,13 @@ class CashSheetAutofillEngine:
                 cyoa_base = self._cyoa_base_venue(venue)
                 if swoop_base:
                     value = f"{count:>10} order(s)"
-                    dest = f"→ Swoop Swap ({col('swoop_swap')}) on '{swoop_base}' row"
+                    dest = (f"→ info only (sales → Less transfer "
+                            f"({col('swoop_swap')}) on '{swoop_base}' row, "
+                            "from the tender report)")
                 elif cyoa_base:
                     sales = parser.get_sales(date, venue) or 0.0
                     value = f"${sales:>9.2f} sales"
-                    dest = f"→ 1,2,3 ({col('cyoa')}) on '{cyoa_base}' row"
+                    dest = f"→ 1M Meal ({col('cyoa')}) on '{cyoa_base}' row"
                 else:
                     value = f"{count:>10} order(s)"
                     dest = f"→ count ({col('count')})"
@@ -480,9 +484,18 @@ class CashSheetAutofillEngine:
         return False
 
     def find_casheet_file(self, casheet_pattern):
-        """Find a cash-sheet file whose name contains *casheet_pattern*."""
+        """
+        Find a cash-sheet file whose name contains *casheet_pattern*.
+
+        The comparison ignores case and punctuation, so a pattern like
+        "City's Edge" still matches "City_s Edge Master.xlsx" — saving a
+        workbook often swaps punctuation in the file name.
+        """
+        target = _compact_venue(casheet_pattern)
+        if not target:
+            return None
         for f in self.casheet_files:
-            if casheet_pattern.strip().lower() in f.strip().lower():
+            if target in _compact_venue(f):
                 return f
         return None
 
@@ -679,10 +692,12 @@ class CashSheetAutofillEngine:
         }
         for d in data_list:
             if d.get("is_swoop"):
-                swoop = d.get("swoop_swap")
-                if swoop is not None:
-                    merged["swoop_swap"] = (
-                        merged["swoop_swap"] or 0) + swoop
+                # A Swoop Swap sibling's whole sale belongs in the
+                # Less-transfer column, so its tender split is NOT merged
+                # into the row's tender columns — that would report the
+                # same dollars twice.
+                merged["swoop_swap"] = (
+                    merged["swoop_swap"] or 0.0) + d.get("total_sales", 0.0)
             elif d.get("is_cyoa"):
                 cyoa = d.get("cyoa")
                 if cyoa is not None:
@@ -696,8 +711,21 @@ class CashSheetAutofillEngine:
             merged["total_sales"] += d.get("total_sales", 0.0)
             merged["tax"] += d.get("tax", 0.0)
             merged["discounts"] += d.get("discounts", 0.0)
-            for k, v in d.get("tenders", {}).items():
-                merged["tenders"][k] = merged["tenders"].get(k, 0.0) + v
+            if not d.get("is_swoop"):
+                for k, v in d.get("tenders", {}).items():
+                    merged["tenders"][k] = merged["tenders"].get(k, 0.0) + v
+        # The base venue's meal transfers ride along with the Swoop Swap
+        # sales in the Less-transfer column, so move them out of the
+        # transfer tender (column H) and into the Swoop figure (column G).
+        if merged["swoop_swap"] is not None:
+            normal_transfer = sum(
+                d.get("tenders", {}).get("transfer", 0.0)
+                for d in data_list
+                if not d.get("is_swoop") and not d.get("is_cyoa"))
+            if normal_transfer:
+                merged["swoop_swap"] += normal_transfer
+                merged["tenders"]["transfer"] = (
+                    merged["tenders"].get("transfer", 0.0) - normal_transfer)
         return merged
 
     def process_grubhub(self, parser, grubhub_path, order_counts=None):
@@ -765,8 +793,9 @@ class CashSheetAutofillEngine:
         for venue in venues:
             # Sibling venues reuse the base venue's config entry and land on
             # the same cash-sheet row, but contribute to a different column:
-            #   "X - Swoop Swap Shop"            → order count → Swoop Swap (G)
-            #   "X - Choose Your Own Adventure"  → total sales → 1,2,3 (H)
+            #   "X - Swoop Swap Shop"            → total sales (+ X's meal
+            #                                      transfers) → Less transfer (G)
+            #   "X - Choose Your Own Adventure"  → total sales → 1M Meal (H)
             swoop_base = self._swoop_base_venue(venue)
             cyoa_base = self._cyoa_base_venue(venue)
             map_name = swoop_base or cyoa_base or venue
@@ -794,10 +823,12 @@ class CashSheetAutofillEngine:
             data["swoop_swap"] = None
             data["cyoa"] = None
             if data["is_swoop"]:
-                value = (order_counts.get_count(grub_date, venue)
-                         if order_counts else None)
+                # Swoop Swap dollars come from this tender report itself
+                # (its accumulated sales), so there is no Sales-at-a-Glance
+                # lookup and nothing can be "missing".
+                value = data.get("total_sales", 0.0)
                 data["swoop_swap"] = value
-                missing_bucket = "missing_swoop"
+                missing_bucket = None
             elif data["is_cyoa"]:
                 value = (order_counts.get_sales(grub_date, venue)
                          if order_counts else None)
@@ -813,11 +844,11 @@ class CashSheetAutofillEngine:
             grp = date_groups.setdefault(
                 key,
                 {"venues": [], "data_list": [], "missing_counts": [],
-                 "missing_swoop": [], "missing_cyoa": []},
+                 "missing_cyoa": []},
             )
             grp["venues"].append(venue)
             grp["data_list"].append(data)
-            if value is None:
+            if missing_bucket and value is None:
                 grp[missing_bucket].append(venue)
         return date_groups
 
@@ -895,16 +926,23 @@ class CashSheetAutofillEngine:
         t.trace("│               (order counts come from Sales-at-a-Glance, "
                 "not the tender report)")
 
-        swoops = [d.get("swoop_swap") for d in data_list
-                  if d.get("swoop_swap") is not None]
-        if swoops:
-            sum_line("swoop swap", swoops, sum(swoops), money=False)
-            t.trace("│               (Swoop Swap Shop counts → column G)")
+        if merged.get("swoop_swap") is not None:
+            swoops = [d.get("total_sales", 0.0) for d in data_list
+                      if d.get("is_swoop")]
+            swoop_sales = sum(swoops)
+            transfer_part = merged["swoop_swap"] - swoop_sales
+            terms = " + ".join(f"${v:.2f}" for v in swoops)
+            if transfer_part:
+                terms += f" + ${transfer_part:.2f} meal transfers"
+            t.trace(f"│ {'less transfer':<12}: {terms} "
+                    f"= ${merged['swoop_swap']:.2f}")
+            t.trace("│               (Swoop Swap sales + base venue's meal "
+                    "transfers → column G)")
 
         cyoas = [d.get("cyoa") for d in data_list
                  if d.get("cyoa") is not None]
         if cyoas:
-            sum_line("1,2,3", cyoas, sum(cyoas))
+            sum_line("1M meal", cyoas, sum(cyoas))
             t.trace("│               (Choose Your Own Adventure sales "
                     "→ column H)")
 
@@ -929,9 +967,13 @@ class CashSheetAutofillEngine:
             f"{k} ${v:.2f}" for k, v in sorted(live.items())) or "none"))
 
         tender_sum = sum(merged.get("tenders", {}).values())
-        delta = tender_sum - merged["total_sales"]
+        swoop_val = merged.get("swoop_swap") or 0.0
+        delta = tender_sum + swoop_val - merged["total_sales"]
         mark = "✓ balances" if abs(delta) < 0.005 else f"✗ off by ${delta:+.2f}"
-        t.trace(f"│ {'balance':<12}: tenders ${tender_sum:.2f} vs sales "
+        left = f"tenders ${tender_sum:.2f}"
+        if swoop_val:
+            left += f" + less transfer ${swoop_val:.2f}"
+        t.trace(f"│ {'balance':<12}: {left} vs sales "
                 f"${merged['total_sales']:.2f}  {mark}")
 
     def _fill_grubhub_group(self, grub_date, grp, casheet_path,
@@ -940,21 +982,22 @@ class CashSheetAutofillEngine:
         venue_names = grp["venues"]
         data_list = grp["data_list"]
         missing_counts = grp.get("missing_counts", [])
-        missing_swoop = grp.get("missing_swoop", [])
         missing_cyoa = grp.get("missing_cyoa", [])
 
+        # Always aggregate — even a single-venue group goes through the same
+        # sibling routing (Swoop Swap → Less transfer, meal-transfer fold) so
+        # a Swoop sibling that shows up alone is still handled correctly.
+        merged_data = self._aggregate_data_dicts(data_list)
         if len(data_list) > 1:
             label = f"{grub_date} : {', '.join(venue_names)} (combined)"
             # Just the venue names, matching the single-venue branch below.
             # Provenance is already recorded by the DB's `source` column, and
             # the old "Grubhub" prefix was concatenated without a separator.
             raw_location = ", ".join(venue_names)
-            merged_data = self._aggregate_data_dicts(data_list)
             venue_display = f"{venue_names[0]} +{len(venue_names) - 1} more"
         else:
             label = f"{grub_date} : {venue_names[0]}"
             raw_location = venue_names[0]
-            merged_data = data_list[0]
             venue_display = venue_names[0]
 
         disc, disc_before = self._add_discounts(merged_data)
@@ -968,18 +1011,12 @@ class CashSheetAutofillEngine:
                 "Missing Grubhub order count for "
                 f"{', '.join(missing_counts)} on {grub_date}; "
                 "count cell left unchanged.")
-        if missing_swoop:
-            merged_data["swoop_swap"] = None
-            self.tracker.warning(
-                "Missing Grubhub order count for "
-                f"{', '.join(missing_swoop)} on {grub_date}; "
-                "Swoop Swap cell left unchanged.")
         if missing_cyoa:
             merged_data["cyoa"] = None
             self.tracker.warning(
                 "Missing Grubhub merchant sales for "
                 f"{', '.join(missing_cyoa)} on {grub_date}; "
-                "1,2,3 cell left unchanged.")
+                "1M Meal cell left unchanged.")
 
         # One compact summary line per cash row before we fill.
         sales = merged_data.get("total_sales", 0)
@@ -989,9 +1026,9 @@ class CashSheetAutofillEngine:
         line = (f"{venue_display:<40} ${sales:>9.2f}  tax ${tax:>6.2f}  "
                 f"count {count_text}")
         if merged_data.get("swoop_swap") is not None:
-            line += f"  swoop {merged_data['swoop_swap']}"
+            line += f"  less transfer ${merged_data['swoop_swap']:.2f}"
         if merged_data.get("cyoa") is not None:
-            line += f"  1,2,3 ${merged_data['cyoa']:.2f}"
+            line += f"  1M meal ${merged_data['cyoa']:.2f}"
         self.tracker.detail(line)
 
         self.fill_and_save(

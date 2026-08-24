@@ -271,19 +271,20 @@ class ExcelAutofiller:
                 else:
                     put(self.row, col, None, tender_name)
 
-            # Step 4: sibling-venue figures. Swoop Swap counts go to their
-            # own column (G). Choose Your Own Adventure sales go to the
-            # "1,2,3" column (H), which the transfer tender also targets —
-            # written after the tender loop so a zero transfer doesn't
-            # clear it.
+            # Step 4: sibling-venue figures. Swoop Swap dollars (the
+            # sibling's sales plus the base venue's meal transfers) go to
+            # the Less-transfer column (G). Choose Your Own Adventure sales
+            # go to the "1M Meal" column (H), which the transfer tender also
+            # targets — written after the tender loop so a zero transfer
+            # doesn't clear it.
             swoop_col = FILL_COL_MAP.get("swoop_swap")
             if swoop_col and parser.get("swoop_swap") is not None:
                 put(self.row, swoop_col, parser.get("swoop_swap"),
-                    "swoop_swap")
+                    "less transfer")
 
             cyoa_col = FILL_COL_MAP.get("cyoa")
             if cyoa_col and parser.get("cyoa") is not None:
-                put(self.row, cyoa_col, parser.get("cyoa"), "cyoa")
+                put(self.row, cyoa_col, parser.get("cyoa"), "1M meal")
 
             # Report any unmatched tenders
             if unmatched_tenders:
