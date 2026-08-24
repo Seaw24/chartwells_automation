@@ -156,6 +156,7 @@ class AutoFillRuntimeController:
                 "copies": copies,
                 "orientation": orientation,
                 "collate": self.view._print_collate_var.get() == 1,
+                "print_totals": self.view._print_totals_var.get() == 1,
             }
 
         self.view._cs_stop_event = threading.Event()
@@ -178,7 +179,9 @@ class AutoFillRuntimeController:
                     on_event=_on_event, stop_event=self.view._cs_stop_event,
                     auto_print=self.view._cs_auto_print.get() == 1,
                     printer_name=print_settings.get("printer_name") if print_settings else None,
-                    print_settings=print_settings)
+                    print_settings=print_settings,
+                    print_totals=bool(print_settings.get("print_totals"))
+                    if print_settings else False)
                 engine.execute()
                 self.view.after(
                     0, lambda: self._on_cash_sheet_done(engine.tracker))

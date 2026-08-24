@@ -163,7 +163,10 @@ class AutoFillCenter(ctk.CTkFrame):
         color = self._print_color_var.get()
         copies = self._print_copies_var.get().strip() or "1"
         plural = "copy" if copies == "1" else "copies"
-        return f"{printer}  ·  {color}  ·  {copies} {plural}"
+        summary = f"{printer}  ·  {color}  ·  {copies} {plural}"
+        if self._print_totals_var.get() == 1:
+            summary += "  ·  + Totals"
+        return summary
 
     def _refresh_print_summary(self):
         if self._cs_auto_print.get() == 1:
@@ -178,7 +181,7 @@ class AutoFillCenter(ctk.CTkFrame):
 
         dialog = ctk.CTkToplevel(self)
         dialog.title("Print Settings")
-        dialog.geometry("480x360")
+        dialog.geometry("480x392")
         dialog.resizable(False, False)
         dialog.configure(fg_color=BG)
         dialog.transient(self.winfo_toplevel())
@@ -263,6 +266,16 @@ class AutoFillCenter(ctk.CTkFrame):
             border_color=BORDER).pack(side="left", padx=(0, 18))
         ctk.CTkCheckBox(
             check_row, text="Collate", variable=self._print_collate_var,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color=PURPLE, hover_color=PURPLE_DARK,
+            border_color=BORDER).pack(side="left")
+
+        totals_row = ctk.CTkFrame(body, fg_color="transparent")
+        totals_row.grid(row=5, column=0, columnspan=3, sticky="ew",
+                        pady=(10, 0))
+        ctk.CTkCheckBox(
+            totals_row, text="Totals pages (every location, same batch)",
+            variable=self._print_totals_var,
             font=ctk.CTkFont(family=FONT, size=11),
             fg_color=PURPLE, hover_color=PURPLE_DARK,
             border_color=BORDER).pack(side="left")
@@ -476,6 +489,10 @@ class AutoFillCenter(ctk.CTkFrame):
         self._print_orientation_var = ctk.StringVar(value="Landscape")
         self._print_duplex_var = ctk.IntVar(value=0)
         self._print_collate_var = ctk.IntVar(value=1)
+        # Off by default: weekdays print only the freshly filled tabs; check
+        # it (typically at week end) to add every location's Totals page to
+        # the same print batch.
+        self._print_totals_var = ctk.IntVar(value=0)
         self._print_copies_var = ctk.StringVar(value="1")
         self._printer_dropdown = None  # created lazily inside the dialog
 

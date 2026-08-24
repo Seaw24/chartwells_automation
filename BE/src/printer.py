@@ -135,7 +135,7 @@ class ExcelPrinter:
             sheet_names_by_file: ``{casheet_path: {sheet name, ...}}`` — only
                                  the listed workbooks are printed, and only the
                                  listed tabs within each (weekday tabs, plus
-                                 "Totals" on Friday runs).
+                                 "Totals" when the Totals print option is on).
             printable_reports:   Set of report filenames (basenames) that had
                                  non-zero data and should be printed. Reports
                                  whose names aren't in this set are skipped.

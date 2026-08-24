@@ -137,6 +137,20 @@ class ExcelAutofiller:
             f"Location '{self.location}' not found in column {location_col}")
         return False
 
+    def _find_date_col(self):
+        """
+        Column the header date value belongs in: the cell just right of the
+        row-1 "DATE:" label. The label's position drifts between workbooks
+        (KV's sits one column left of the others'), so the label is
+        authoritative and the configured column is only a fallback — a fixed
+        column would leave those sheets printing with an empty date cell.
+        """
+        for cell in self.ws[1]:
+            if (isinstance(cell.value, str)
+                    and cell.value.strip().lower().startswith("date")):
+                return cell.column + 1
+        return FILL_COL_MAP.get("date")
+
     def _capture_over_formula(self):
         """
         Record the over/short cell's formula text before the workbook is saved.
@@ -236,9 +250,15 @@ class ExcelAutofiller:
                                       else f"{value}"))
 
             # Step 2: Fill basic performance metrics
-            date_col = FILL_COL_MAP.get("date")
+            date_col = self._find_date_col()
             if date_col:
                 put(1, date_col, parser.get("date"), "date")
+                # Older builds wrote the date to the configured column even
+                # when the DATE: label sat elsewhere (KV); wipe the leftover
+                # so the sheet doesn't print two dates.
+                config_col = FILL_COL_MAP.get("date")
+                if config_col and config_col != date_col:
+                    put(1, config_col, None, "stale date")
 
             count_col = FILL_COL_MAP.get("count")
             if count_col and parser.get("count") is not None:
@@ -271,8 +291,7 @@ class ExcelAutofiller:
                 else:
                     put(self.row, col, None, tender_name)
 
-            # Step 4: sibling-venue figures. Swoop Swap dollars (the
-            # sibling's sales plus the base venue's meal transfers) go to
+            # Step 4: sibling-venue figures. Swoop Swap order counts go to
             # the Less-transfer column (G). Choose Your Own Adventure sales
             # go to the "1M Meal" column (H), which the transfer tender also
             # targets — written after the tender loop so a zero transfer
