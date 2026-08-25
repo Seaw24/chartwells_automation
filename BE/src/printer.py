@@ -333,6 +333,38 @@ class ExcelPrinter:
             pass
 
     @staticmethod
+    def _printer_supports_duplex(name):
+        """
+        Ask the driver whether it can print double-sided at all (DC_DUPLEX).
+
+        Unknown answers count as "yes" so a quirky driver never blocks a
+        printer that actually works.
+        """
+        try:
+            import win32con
+            import win32print
+            return bool(win32print.DeviceCapabilities(
+                name, "", getattr(win32con, "DC_DUPLEX", 7)))
+        except Exception:
+            return True
+
+    def _read_back_devmode(self, win32print, name):
+        """Re-open the printer and return the settings the driver kept."""
+        handle = None
+        try:
+            handle = self._open_windows_printer(win32print, name)
+            devmode = self._read_driver_devmode(win32print, handle)
+            return {} if devmode is None else self._snapshot_devmode(devmode)
+        except Exception:
+            return {}
+        finally:
+            if handle is not None:
+                try:
+                    win32print.ClosePrinter(handle)
+                except Exception:
+                    pass
+
+    @staticmethod
     def _write_driver_devmode(win32print, handle, name, devmode):
         """
         Persist ``devmode`` as the printing defaults Excel will pick up.
@@ -393,6 +425,11 @@ class ExcelPrinter:
                 if self.settings.duplex
                 else getattr(win32con, "DMDUP_SIMPLEX", 1)
             )
+            if self.settings.duplex and not self._printer_supports_duplex(name):
+                self._log(
+                    f"WARNING: Printer '{name}' reports no double-sided "
+                    "support, so pages will come out single-sided.",
+                    kind="warning")
             if self._set_devmode_setting(
                     devmode, "Duplex", duplex_value,
                     getattr(win32con, "DM_DUPLEX", 0x1000)):
@@ -417,9 +454,27 @@ class ExcelPrinter:
             self._validate_devmode(win32print, handle, name, devmode)
             self._write_driver_devmode(win32print, handle, name, devmode)
             self._printer_driver_original = (name, original)
-            self._log(
-                f"Printer options applied: {', '.join(changed)}",
-                kind="detail")
+
+            # Report what the driver actually kept, not what we asked for: a
+            # printer that silently drops the duplex bit used to be logged as
+            # "applied" while every page still came out single-sided.
+            stored = self._read_back_devmode(win32print, name)
+            stored_duplex = stored.get("Duplex")
+            if stored_duplex is not None and stored_duplex != duplex_value:
+                wanted = ("double-sided" if self.settings.duplex
+                          else "single-sided")
+                changed = [c for c in changed if c != wanted]
+                self._log(
+                    f"WARNING: Printer '{name}' did not accept the "
+                    f"{wanted} setting and kept its own default. Set it in "
+                    "Windows Settings > Printers > Printing preferences for "
+                    "this printer, then run again.",
+                    kind="warning")
+
+            if changed:
+                self._log(
+                    f"Printer options applied: {', '.join(changed)}",
+                    kind="detail")
         except Exception as exc:
             self._log(
                 f"WARNING: Could not apply printer driver options: {exc}. "
@@ -639,17 +694,17 @@ class ExcelPrinter:
                         excel.CalculateFull()
                     except Exception:
                         pass
-                count = 0
                 # Weekday tabs first, Totals last, in a stable order.
                 ordered = sorted(
                     sheet_names, key=lambda n: (n.lower() == "totals", n))
-                for name in ordered:
-                    target = ws_map.get(name.lower())
-                    if target:
-                        target.Select()
-                        self._print_sheet(target)
-                        count += 1
+                targets = [ws_map[n.lower()] for n in ordered
+                           if n.lower() in ws_map]
+                for target in targets:
+                    self._fit_hidden_numbers(target)
+                    self._expand_print_area(target, excel)
+                count = len(targets)
                 if count > 0:
+                    self._print_sheets(wb, targets)
                     self._log(
                         f"   ✓ {filename}  ({count} sheet(s))",
                         kind="detail")
@@ -677,6 +732,158 @@ class ExcelPrinter:
     def _count_print(success, printed, failed):
         return (printed + 1, failed) if success else (printed, failed + 1)
 
+    # === ###### (VALUE TOO WIDE FOR ITS COLUMN) ===
+
+    @staticmethod
+    def _hidden_rows(ws, col, rows):
+        """Return the rows of ``col`` Excel is still rendering as ######."""
+        hidden = []
+        for row in rows:
+            try:
+                text = str(ws.Cells(row, col).Text).strip()
+            except Exception:
+                continue
+            if text and set(text) == {"#"}:
+                hidden.append(row)
+        return hidden
+
+    def _widen_column(self, ws, col, rows):
+        """Grow one column until the values in ``rows`` are readable."""
+        column = ws.Columns(col)
+        original = column.ColumnWidth
+        try:
+            if column.Hidden or original <= 0:
+                return      # a column hidden on purpose stays hidden
+        except Exception:
+            pass
+
+        # AutoFit on a partial range sizes the column to just those cells, so
+        # a long label further down the column can't blow the layout apart.
+        ws.Range(ws.Cells(min(rows), col),
+                 ws.Cells(max(rows), col)).Columns.AutoFit()
+        if column.ColumnWidth < original:
+            # Never make a template column narrower than it was saved.
+            column.ColumnWidth = original
+
+        # AutoFit ignores merged cells and some fonts still round short, so
+        # nudge the width up until nothing is masked (bounded at ~18 chars).
+        for _ in range(12):
+            if not self._hidden_rows(ws, col, rows):
+                return
+            column.ColumnWidth = column.ColumnWidth + 1.5
+
+    def _fit_hidden_numbers(self, ws):
+        """
+        Widen any column Excel is rendering as ###### so the value prints.
+
+        Excel masks a number or date that is wider than its column — a total
+        crossing 1,000 in a column sized for three digits becomes ######, and
+        that is exactly what lands on the page. Cash sheets keep their saved
+        column widths on purpose, so rather than auto-fitting the whole sheet
+        we touch only the columns that are actually hiding something.
+        """
+        try:
+            used = ws.UsedRange
+            first_row, first_col = used.Row, used.Column
+            values = used.Value
+        except Exception:
+            return
+        if values is None:
+            return
+        if not isinstance(values, tuple):   # a one-cell range comes back flat
+            values = ((values,),)
+
+        # Only numbers and dates can hide behind ###### — text either spills
+        # into the neighbouring cell or is clipped, never masked.
+        candidates = {}
+        for r, row in enumerate(values):
+            if not isinstance(row, tuple):
+                row = (row,)
+            for c, value in enumerate(row):
+                if value is None or isinstance(value, str):
+                    continue
+                candidates.setdefault(first_col + c, []).append(first_row + r)
+
+        for col, rows in candidates.items():
+            hidden = self._hidden_rows(ws, col, rows)
+            if not hidden:
+                continue
+            try:
+                self._widen_column(ws, col, hidden)
+            except Exception:
+                continue
+
+    # === PRINT AREA (THE SHEET GREW PAST WHAT THE TEMPLATE PRINTS) ===
+
+    # Excel constants for Range.Find — resolved here so the COM calls read
+    # the same as the VBA they mirror.
+    _XL_FORMULAS = -4123
+    _XL_PART = 2
+    _XL_BY_ROWS = 1
+    _XL_BY_COLUMNS = 2
+    _XL_PREVIOUS = 2
+
+    def _last_content_cell(self, ws):
+        """
+        Return ``(row, col)`` of the furthest cell holding a value.
+
+        ``UsedRange`` also counts cells that only carry formatting, which on
+        these templates reaches far below the last real figure and would add
+        blank pages, so search for content instead.
+        """
+        def _find(order):
+            try:
+                return ws.Cells.Find(
+                    What="*", After=ws.Cells(1, 1),
+                    LookIn=self._XL_FORMULAS, LookAt=self._XL_PART,
+                    SearchOrder=order, SearchDirection=self._XL_PREVIOUS)
+            except Exception:
+                return None
+
+        last_row = _find(self._XL_BY_ROWS)
+        last_col = _find(self._XL_BY_COLUMNS)
+        if last_row is None or last_col is None:
+            return None
+        try:
+            return last_row.Row, last_col.Column
+        except Exception:
+            return None
+
+    def _expand_print_area(self, ws, excel):
+        """
+        Print the whole sheet instead of the slice the template froze.
+
+        Cash-sheet tabs carry a print area saved when the layout was shorter
+        (``$A$1:$W$62``) together with "fit to one page tall". The sheet has
+        since grown — the GL/tender breakdown now runs past row 80 — and
+        everything below the old print area was silently dropped from the
+        page. Stretch the print area to whatever the tab actually holds and
+        let it flow onto a second sheet of paper: still one page wide, so the
+        columns line up as before, but as many pages tall as the content
+        needs rather than cut off.
+        """
+        last = self._last_content_cell(ws)
+        if not last:
+            return
+        row, col = last
+        try:
+            excel.PrintCommunication = False
+        except Exception:
+            pass
+        try:
+            ws.PageSetup.PrintArea = ws.Range(
+                ws.Cells(1, 1), ws.Cells(row, col)).Address
+            ws.PageSetup.Zoom = False        # FitToPages only applies with Zoom off
+            ws.PageSetup.FitToPagesWide = 1
+            ws.PageSetup.FitToPagesTall = False   # as tall as it takes
+        except Exception:
+            pass
+        finally:
+            try:
+                excel.PrintCommunication = True
+            except Exception:
+                pass
+
     def _apply_page_setup(self, ws, excel):
         """Apply page settings used by Excel before printing."""
         try:
@@ -701,6 +908,39 @@ class ExcelPrinter:
             excel.PrintCommunication = True
         except Exception:
             pass
+
+    def _print_sheets(self, wb, worksheets):
+        """
+        Send several tabs of one workbook to the printer as a single job.
+
+        Double-sided is decided per print job: a printer can only put page 2
+        on the back of page 1 when both belong to the same document. Calling
+        ``PrintOut`` once per tab hands the driver a stack of one-page
+        documents, so every tab starts a fresh sheet of paper and the
+        "Double-sided" option looks like it was ignored. Selecting the tabs
+        as a group makes Excel emit one document, which the driver can then
+        actually duplex. Grouped sheets print in workbook tab order.
+        """
+        if len(worksheets) == 1:
+            worksheets[0].Select()
+            self._print_sheet(worksheets[0])
+            return
+
+        try:
+            for index, ws in enumerate(worksheets):
+                # Replace:=True on the first tab, False to add the rest.
+                ws.Select(index == 0)
+            self._print_sheet(wb.Windows(1).SelectedSheets)
+            return
+        except Exception as exc:
+            self._log(
+                f"   Note: could not group tabs into one job ({exc}); "
+                "printing them one at a time, which prints single-sided.",
+                kind="detail")
+
+        for ws in worksheets:
+            ws.Select()
+            self._print_sheet(ws)
 
     def _print_sheet(self, ws):
         kwargs = {

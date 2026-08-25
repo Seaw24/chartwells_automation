@@ -157,10 +157,20 @@
       "grubhub",
       "Hive Express"
     ],
+    "Quartzdyne": [
+      "HECS",
+      "grubhub",
+      "Hive Express"
+    ],
     "Honors Market": [
       "Honors",
       "grubhub",
       "Honors Market"
+    ],
+    "The Bean Yard": [
+      "Beanyard",
+      "grubhub",
+      "The Bean Yard"
     ],
     "Seagull Sunrise": [
       "crss",
@@ -192,12 +202,27 @@
       "grubhub",
       "Union Food Court"
     ],
+    "Tu Tacos": [
+      "csfs",
+      "grubhub",
+      "Union Food Court"
+    ],
+    "Tu Taco": [
+      "csfs",
+      "grubhub",
+      "Union Food Court"
+    ],
     "Cupbop": [
       "gardner",
       "grubhub",
       "Gardner Food Court"
     ],
     "Gardner": [
+      "gardner",
+      "grubhub",
+      "Gardner Food Court"
+    ],
+    "Gardner C- Store": [
       "gardner",
       "grubhub",
       "Gardner Food Court"
@@ -305,6 +330,32 @@
     "cash sales": 21,
     "cash for deposit": 22,
     "over": 23
+  },
+  "col_map_overrides": {
+    "kv": {
+      "note": "Kahlert Village's sheet has no '1M Meal' column, so every column from 'Less coupons' rightward sits one to the left of the standard layout: G Less Meals, H Less coupons, I CASH OVERINGS, J ADJ CASH SALES, K Less Ucash, L Chartwells DCB, M Less Dining Dollars, N Less Ushop, O Taxable Invoice, P Amex, Q Discover, R MC, S Visa, T CASH SALES, U CASH FOR DEPOSIT, V OVER. Only the keys that move are listed; null means the sheet has no such column. 'date' is deliberately absent - the filler locates it from the row-1 DATE: label.",
+      "fill_col_map": {
+        "transfer": 7,
+        "swoop_swap": null,
+        "cyoa": null,
+        "coupons": 8,
+        "ucash": 11,
+        "chartwellsDCB": 12,
+        "dining_dollars": 13,
+        "ushop": 14,
+        "amex": 16,
+        "discover": 17,
+        "mc": 18,
+        "visa": 19
+      },
+      "checking_col_map": {
+        "cash overings": 9,
+        "adj cash sales": 10,
+        "cash sales": 20,
+        "cash for deposit": 21,
+        "over": 22
+      }
+    }
   },
   "infor_tenders": {
     "AT Contract Card": "contract_card",

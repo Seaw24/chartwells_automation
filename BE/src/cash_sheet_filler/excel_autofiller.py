@@ -6,7 +6,7 @@ Handles automated filling of cash sheet Excel workbooks with parsed sales data.
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 import traceback
-from .config import FILL_COL_MAP, CHECKING_COL_MAP, VERBOSE_TRACE
+from .config import VERBOSE_TRACE, col_maps_for
 from ..utils import strip_accents
 
 
@@ -41,6 +41,10 @@ class ExcelAutofiller:
         self.wb = None
         self.ws = None
         self.tracker = tracker
+        # Column layout for this particular workbook. Most venues share the
+        # standard map, but sheets like Kahlert Village's are a column short
+        # and need their own — see config.col_maps_for.
+        self.fill_cols, self.checking_cols = col_maps_for(xl_path)
         # Set in save(): the over/short formula text, captured before the
         # workbook round-trip drops its cached result. See _capture_over_formula.
         self._over_formula = None
@@ -108,9 +112,9 @@ class ExcelAutofiller:
             return False
 
     def find_row(self):
-        location_col = FILL_COL_MAP.get("location")
+        location_col = self.fill_cols.get("location")
         if location_col is None:
-            self._log_error("'location' column not defined in FILL_COL_MAP")
+            self._log_error("'location' column not defined in the fill column map")
             return False
 
         target = strip_accents(self.location.strip().lower())
@@ -149,7 +153,7 @@ class ExcelAutofiller:
             if (isinstance(cell.value, str)
                     and cell.value.strip().lower().startswith("date")):
                 return cell.column + 1
-        return FILL_COL_MAP.get("date")
+        return self.fill_cols.get("date")
 
     def _capture_over_formula(self):
         """
@@ -165,7 +169,7 @@ class ExcelAutofiller:
 
         Returns the formula string, or None if the cell is not a formula.
         """
-        over_col = CHECKING_COL_MAP.get("over")
+        over_col = self.checking_cols.get("over")
         if over_col is None or self.ws is None or not self.row:
             return None
         raw = self.ws.cell(self.row, over_col).value
@@ -184,11 +188,12 @@ class ExcelAutofiller:
                   A cell we cannot evaluate returns True (nothing to fail on).
         """
         self._over_verified = False
-        over_col = CHECKING_COL_MAP.get("over")
+        over_col = self.checking_cols.get("over")
 
         if over_col is None:
             self._log_warning(
-                "'over' column not defined in CHECKING_COL_MAP - skipping validation")
+                "'over' column not defined in the checking column map - "
+                "skipping validation")
             return True
 
         over_value = self.ws.cell(self.row, over_col).value
@@ -256,20 +261,20 @@ class ExcelAutofiller:
                 # Older builds wrote the date to the configured column even
                 # when the DATE: label sat elsewhere (KV); wipe the leftover
                 # so the sheet doesn't print two dates.
-                config_col = FILL_COL_MAP.get("date")
+                config_col = self.fill_cols.get("date")
                 if config_col and config_col != date_col:
                     put(1, config_col, None, "stale date")
 
-            count_col = FILL_COL_MAP.get("count")
+            count_col = self.fill_cols.get("count")
             if count_col and parser.get("count") is not None:
                 put(self.row, count_col, parser.get("count"), "count")
 
-            total_sales_col = FILL_COL_MAP.get("total_sales")
+            total_sales_col = self.fill_cols.get("total_sales")
             if total_sales_col:
                 put(self.row, total_sales_col,
                     parser.get("total_sales"), "sales")
 
-            tax_col = FILL_COL_MAP.get("tax")
+            tax_col = self.fill_cols.get("tax")
             if tax_col:
                 # Same column as sales, one row down — that's the sheet layout.
                 put(tax_row, tax_col, parser.get("tax"), "tax")
@@ -279,11 +284,15 @@ class ExcelAutofiller:
             unmatched_tenders = []
 
             for tender_name, amount in tenders.items():
-                if tender_name not in FILL_COL_MAP:
+                if tender_name not in self.fill_cols:
                     unmatched_tenders.append(tender_name)
                     continue
 
-                col = FILL_COL_MAP[tender_name]
+                col = self.fill_cols[tender_name]
+                if col is None:
+                    # Mapped to null: this sheet has no column for the tender.
+                    unmatched_tenders.append(tender_name)
+                    continue
 
                 # Write all non-zero amounts (including negatives); clear zeros
                 if amount != 0:
@@ -296,12 +305,12 @@ class ExcelAutofiller:
             # go to the "1M Meal" column (H), which the transfer tender also
             # targets — written after the tender loop so a zero transfer
             # doesn't clear it.
-            swoop_col = FILL_COL_MAP.get("swoop_swap")
+            swoop_col = self.fill_cols.get("swoop_swap")
             if swoop_col and parser.get("swoop_swap") is not None:
                 put(self.row, swoop_col, parser.get("swoop_swap"),
                     "less transfer")
 
-            cyoa_col = FILL_COL_MAP.get("cyoa")
+            cyoa_col = self.fill_cols.get("cyoa")
             if cyoa_col and parser.get("cyoa") is not None:
                 put(self.row, cyoa_col, parser.get("cyoa"), "1M meal")
 

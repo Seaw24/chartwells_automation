@@ -869,10 +869,19 @@ class CashSheetAutofillEngine:
         base = self._swoop_base_venue(venue) or self._cyoa_base_venue(venue)
         return self._venue_map_entry(base or venue) is not None
 
+    # Grubhub types the Swoop Swap suffix by hand and sometimes drops the
+    # "Shop" — "Greek Kabob - Swoop Swap". Longest first, so the full suffix
+    # always wins and never leaves a stray "Shop" on the base venue name.
+    _SWOOP_SUFFIXES = ("swoop swap shop", "swoop swap")
+
     @classmethod
     def _swoop_base_venue(cls, venue):
         """'City Edge - Swoop Swap Shop' -> 'City Edge'; else None."""
-        return cls._sibling_base_venue(venue, "swoop swap shop")
+        for suffix in cls._SWOOP_SUFFIXES:
+            base = cls._sibling_base_venue(venue, suffix)
+            if base:
+                return base
+        return None
 
     @classmethod
     def _cyoa_base_venue(cls, venue):

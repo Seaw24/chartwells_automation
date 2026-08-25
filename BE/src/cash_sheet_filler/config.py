@@ -74,3 +74,38 @@ CASH_SHEET_FOLDER = _config["cash_sheets_folder"]
 # of aggregate-only lines. Read with .get() so configs written by an older
 # build — which live next to the .exe and are never overwritten — still load.
 VERBOSE_TRACE = _config.get("verbose_trace", True)
+
+# Per-workbook column differences, keyed by a fragment of the file name.
+# Read with .get() for the same reason as VERBOSE_TRACE: configs written by
+# an older build live next to the .exe and are never overwritten.
+COL_MAP_OVERRIDES = _config.get("col_map_overrides", {})
+
+
+def _compact_name(name):
+    """Letters and digits only, lower-cased — 'City_s Edge' == "City's Edge"."""
+    return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+
+def col_maps_for(xl_path):
+    """
+    Return ``(fill_col_map, checking_col_map)`` for one cash-sheet workbook.
+
+    Most venues share the standard layout, but a few sheets are built a
+    column short — Kahlert Village has no "1M Meal" column, so everything
+    from "Less coupons" rightward sits one to the left — and a filler using
+    the standard map writes those venues' tenders into the wrong columns.
+    ``col_map_overrides`` records the differences per workbook; an entry
+    lists only the keys that move, and a key mapped to ``null`` means the
+    sheet has no such column and nothing should be written there.
+    """
+    fill = dict(FILL_COL_MAP)
+    checking = dict(CHECKING_COL_MAP)
+    haystack = _compact_name(Path(xl_path).name) if xl_path else ""
+    if not haystack:
+        return fill, checking
+    for fragment, override in COL_MAP_OVERRIDES.items():
+        if _compact_name(fragment) not in haystack:
+            continue
+        fill.update(override.get("fill_col_map", {}))
+        checking.update(override.get("checking_col_map", {}))
+    return fill, checking

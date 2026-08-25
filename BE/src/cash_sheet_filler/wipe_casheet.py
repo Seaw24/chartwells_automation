@@ -2,17 +2,11 @@ import os
 from openpyxl import load_workbook
 
 # Import your configuration
-from config import CASH_SHEET_FOLDER, FILL_COL_MAP
+from config import CASH_SHEET_FOLDER, col_maps_for
 
 
 def clear_all_cash_sheets():
     print(f"Looking for Cash Sheets in: {CASH_SHEET_FOLDER}\n")
-
-    # Exclude 'location' so we keep names, and 'date' so we don't wipe column 21 in the lower rows
-    cols_to_clear = set(
-        col for key, col in FILL_COL_MAP.items()
-        if key not in ["location", "date"]
-    )
 
     weekdays = ["Monday", "Tuesday", "Wednesday",
                 "Thursday", "Friday", "Saturday", "Sunday"]
@@ -25,6 +19,16 @@ def clear_all_cash_sheets():
         filepath = os.path.join(CASH_SHEET_FOLDER, filename)
         print(f"Wiping {filename}...")
 
+        # Columns vary per workbook (Kahlert Village's sheet is a column
+        # short), so resolve them from the file name rather than assuming
+        # the standard layout. Exclude 'location' so we keep the row names,
+        # and 'date' so we don't wipe the header date cell in the data rows.
+        fill_cols, _ = col_maps_for(filepath)
+        cols_to_clear = set(
+            col for key, col in fill_cols.items()
+            if col is not None and key not in ["location", "date"]
+        )
+
         try:
             wb = load_workbook(filepath)
             changed = False
@@ -36,7 +40,7 @@ def clear_all_cash_sheets():
                     ws = wb[sheet_name]
 
                     # 1. Clear the date at the top (Row 1)
-                    date_col = FILL_COL_MAP.get("date")
+                    date_col = fill_cols.get("date")
                     if date_col:
                         ws.cell(row=1, column=date_col).value = None
 
