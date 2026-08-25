@@ -164,6 +164,8 @@ class AutoFillCenter(ctk.CTkFrame):
         copies = self._print_copies_var.get().strip() or "1"
         plural = "copy" if copies == "1" else "copies"
         summary = f"{printer}  ·  {color}  ·  {copies} {plural}"
+        if self._print_duplex_var.get() == 1:
+            summary += "  ·  Double-sided"
         if self._print_totals_var.get() == 1:
             summary += "  ·  + Totals"
         return summary

@@ -73,6 +73,9 @@ class ExcelPrinter:
         self._windows_default_printer_original = None
         self._printer_driver_original = None
         self._excel_active_printer = None
+        self._duplex_batch_workbook = None
+        self._duplex_batch_default_sheet_count = 0
+        self._duplex_batch_staged_sheet_count = 0
 
     def _log(self, msg, kind="info"):
         """
@@ -195,13 +198,18 @@ class ExcelPrinter:
             self._apply_windows_driver_print_settings()
             excel = self._open_excel()
             self._set_windows_printer(excel)
+            if self.settings.duplex:
+                self._start_duplex_batch(excel)
             self._print_reports_windows(excel, reports_dir, printable_reports)
             self._print_cash_sheets_windows(
                 excel, casheet_dir, sheet_names_by_file)
+            if self.settings.duplex:
+                self._finish_duplex_batch()
             self.check_print_queue()
             self._log("Print complete.", kind="section")
             return True
         finally:
+            self._close_duplex_batch()
             self._close_excel(excel)
             self._restore_windows_driver_print_settings()
             self._restore_windows_default_printer()
@@ -303,15 +311,8 @@ class ExcelPrinter:
         return self._set_devmode_attr(devmode, attr, value)
 
     @staticmethod
-    def _read_driver_devmode(win32print, handle):
-        """
-        Return the devmode carrying this user's printing defaults.
-
-        Prefers the per-user defaults (GetPrinter level 9) because those can
-        be written back without administrator rights; falls back to the
-        printer's global defaults (level 2) when no per-user copy exists yet.
-        """
-        devmode = None
+    def _read_stored_devmode(win32print, handle):
+        """Return the per-user DEVMODE, or the printer default as a seed."""
         try:
             devmode = win32print.GetPrinter(handle, 9).get("pDevMode")
         except Exception:
@@ -321,39 +322,83 @@ class ExcelPrinter:
         return devmode
 
     @staticmethod
-    def _validate_devmode(win32print, handle, name, devmode):
-        """Let the driver merge/validate devmode changes (per SetPrinter docs)."""
+    def _read_driver_devmode(win32print, handle, name):
+        """
+        Allocate and initialize the printer driver's *full* DEVMODE.
+
+        A driver's DEVMODE can be larger than the public Windows structure
+        because it may append private options.  Allocating only the public
+        portion makes some drivers discard duplex even though ``Duplex`` reads
+        back correctly in Python.  DocumentProperties is the Windows API that
+        reports the required size and fills those private bytes.
+        """
+        seed = ExcelPrinter._read_stored_devmode(win32print, handle)
         try:
+            import pywintypes
             import win32con
-            flags = (getattr(win32con, "DM_IN_BUFFER", 8)
-                     | getattr(win32con, "DM_OUT_BUFFER", 2))
-            win32print.DocumentProperties(
-                0, handle, name, devmode, devmode, flags)
-        except Exception:
-            pass
+            size = win32print.DocumentProperties(
+                0, handle, name, None, None, 0)
+            public_size = pywintypes.DEVMODEType().Size
+            if size < public_size:
+                raise PrinterError(
+                    "Printer driver returned an invalid settings size "
+                    f"({size}).")
+
+            devmode = pywintypes.DEVMODEType(size - public_size)
+            out_flag = getattr(win32con, "DM_OUT_BUFFER", 2)
+            if seed is None:
+                result = win32print.DocumentProperties(
+                    0, handle, name, devmode, None, out_flag)
+            else:
+                flags = getattr(win32con, "DM_IN_BUFFER", 8) | out_flag
+                result = win32print.DocumentProperties(
+                    0, handle, name, devmode, seed, flags)
+            if result < 0:
+                raise PrinterError(
+                    f"Printer driver could not initialize its settings ({result}).")
+            return devmode
+        except ImportError:
+            if seed is not None:
+                return seed
+            raise
+
+    @staticmethod
+    def _validate_devmode(win32print, handle, name, devmode):
+        """Let the driver merge and validate changed DEVMODE fields."""
+        import win32con
+        flags = (getattr(win32con, "DM_IN_BUFFER", 8)
+                 | getattr(win32con, "DM_OUT_BUFFER", 2))
+        result = win32print.DocumentProperties(
+            0, handle, name, devmode, devmode, flags)
+        if result < 0:
+            raise PrinterError(
+                f"Printer driver rejected the requested options ({result}).")
 
     @staticmethod
     def _printer_supports_duplex(name):
         """
         Ask the driver whether it can print double-sided at all (DC_DUPLEX).
 
-        Unknown answers count as "yes" so a quirky driver never blocks a
-        printer that actually works.
+        An unknown answer is deferred to the write/read-back verification so a
+        quirky driver is not rejected before it gets a chance to accept duplex.
         """
         try:
             import win32con
             import win32print
-            return bool(win32print.DeviceCapabilities(
-                name, "", getattr(win32con, "DC_DUPLEX", 7)))
+            result = win32print.DeviceCapabilities(
+                name, None, getattr(win32con, "DC_DUPLEX", 7))
+            if result < 0:
+                return None
+            return bool(result)
         except Exception:
-            return True
+            return None
 
     def _read_back_devmode(self, win32print, name):
         """Re-open the printer and return the settings the driver kept."""
         handle = None
         try:
             handle = self._open_windows_printer(win32print, name)
-            devmode = self._read_driver_devmode(win32print, handle)
+            devmode = self._read_stored_devmode(win32print, handle)
             return {} if devmode is None else self._snapshot_devmode(devmode)
         except Exception:
             return {}
@@ -410,11 +455,12 @@ class ExcelPrinter:
 
             name = self._get_effective_windows_printer_name()
             handle = self._open_windows_printer(win32print, name)
-            devmode = self._read_driver_devmode(win32print, handle)
+            devmode = self._read_driver_devmode(win32print, handle, name)
             if devmode is None:
-                self._log(
-                    f"Printer '{name}' has no editable driver settings.",
-                    kind="warning")
+                message = f"Printer '{name}' has no editable driver settings."
+                if self.settings.duplex:
+                    raise PrinterError(message)
+                self._log(message, kind="warning")
                 return
 
             original = self._snapshot_devmode(devmode)
@@ -425,16 +471,21 @@ class ExcelPrinter:
                 if self.settings.duplex
                 else getattr(win32con, "DMDUP_SIMPLEX", 1)
             )
-            if self.settings.duplex and not self._printer_supports_duplex(name):
-                self._log(
-                    f"WARNING: Printer '{name}' reports no double-sided "
-                    "support, so pages will come out single-sided.",
-                    kind="warning")
-            if self._set_devmode_setting(
+            supports_duplex = self._printer_supports_duplex(name)
+            if self.settings.duplex and supports_duplex is False:
+                raise PrinterError(
+                    f"Printer '{name}' reports that automatic double-sided "
+                    "printing is not supported.")
+            duplex_changed = self._set_devmode_setting(
                     devmode, "Duplex", duplex_value,
-                    getattr(win32con, "DM_DUPLEX", 0x1000)):
+                    getattr(win32con, "DM_DUPLEX", 0x1000))
+            if duplex_changed:
                 changed.append(
                     "double-sided" if self.settings.duplex else "single-sided")
+            elif self.settings.duplex:
+                raise PrinterError(
+                    f"Printer driver for '{name}' does not expose a duplex "
+                    "setting.")
 
             color_value = (
                 getattr(win32con, "DMCOLOR_MONOCHROME", 1)
@@ -460,7 +511,15 @@ class ExcelPrinter:
             # "applied" while every page still came out single-sided.
             stored = self._read_back_devmode(win32print, name)
             stored_duplex = stored.get("Duplex")
-            if stored_duplex is not None and stored_duplex != duplex_value:
+            if self.settings.duplex and stored_duplex != duplex_value:
+                raise PrinterError(
+                    f"Printer '{name}' did not retain the double-sided "
+                    "setting. No pages were printed. Open Windows Settings > "
+                    "Printers > Printing preferences, confirm automatic "
+                    "duplex is installed for this printer, and try again.")
+            if (not self.settings.duplex
+                    and stored_duplex is not None
+                    and stored_duplex != duplex_value):
                 wanted = ("double-sided" if self.settings.duplex
                           else "single-sided")
                 changed = [c for c in changed if c != wanted]
@@ -475,11 +534,17 @@ class ExcelPrinter:
                 self._log(
                     f"Printer options applied: {', '.join(changed)}",
                     kind="detail")
+        except PrinterError:
+            raise
         except Exception as exc:
+            if self.settings.duplex:
+                raise PrinterError(
+                    f"Could not guarantee double-sided printing on the "
+                    f"selected printer: {exc}") from exc
             self._log(
                 f"WARNING: Could not apply printer driver options: {exc}. "
-                "Double-sided/color selections may not take effect; "
-                "Excel page settings will still be applied.",
+                "Color selection may not take effect; Excel page settings "
+                "will still be applied.",
                 kind="warning")
         finally:
             if handle is not None:
@@ -498,7 +563,7 @@ class ExcelPrinter:
             import win32print
 
             handle = self._open_windows_printer(win32print, name)
-            devmode = self._read_driver_devmode(win32print, handle)
+            devmode = self._read_driver_devmode(win32print, handle, name)
             if devmode is None:
                 return
 
@@ -510,6 +575,7 @@ class ExcelPrinter:
             if fields is not None:
                 self._set_devmode_attr(devmode, "Fields", fields)
 
+            self._validate_devmode(win32print, handle, name, devmode)
             self._write_driver_devmode(win32print, handle, name, devmode)
             self._log("Restored printer driver options.", kind="detail")
         except Exception as exc:
@@ -851,16 +917,18 @@ class ExcelPrinter:
 
     def _expand_print_area(self, ws, excel):
         """
-        Print the whole sheet instead of the slice the template froze.
+        Print the whole tab, shrunk to fit on a single sheet of paper.
 
         Cash-sheet tabs carry a print area saved when the layout was shorter
-        (``$A$1:$W$62``) together with "fit to one page tall". The sheet has
-        since grown — the GL/tender breakdown now runs past row 80 — and
-        everything below the old print area was silently dropped from the
-        page. Stretch the print area to whatever the tab actually holds and
-        let it flow onto a second sheet of paper: still one page wide, so the
-        columns line up as before, but as many pages tall as the content
-        needs rather than cut off.
+        (``$A$1:$W$62``). The sheet has since grown — the GL/tender breakdown
+        now runs past row 80 — and everything below the old print area was
+        silently dropped from the page. Stretch the print area to whatever
+        the tab actually holds, then scale it to one page wide *and* one page
+        tall: a cash sheet is read as one table, so the columns shrinking is
+        a far better trade than the bottom rows landing on a second page.
+
+        Manual page breaks saved in the template would otherwise still split
+        the page even at "fit to one page", so clear them first.
         """
         last = self._last_content_cell(ws)
         if not last:
@@ -873,9 +941,13 @@ class ExcelPrinter:
         try:
             ws.PageSetup.PrintArea = ws.Range(
                 ws.Cells(1, 1), ws.Cells(row, col)).Address
+            try:
+                ws.ResetAllPageBreaks()
+            except Exception:
+                pass
             ws.PageSetup.Zoom = False        # FitToPages only applies with Zoom off
             ws.PageSetup.FitToPagesWide = 1
-            ws.PageSetup.FitToPagesTall = False   # as tall as it takes
+            ws.PageSetup.FitToPagesTall = 1
         except Exception:
             pass
         finally:
@@ -909,6 +981,56 @@ class ExcelPrinter:
         except Exception:
             pass
 
+    def _start_duplex_batch(self, excel):
+        """Create the staging workbook that turns the run into one print job."""
+        batch = excel.Workbooks.Add()
+        self._duplex_batch_workbook = batch
+        self._duplex_batch_default_sheet_count = batch.Worksheets.Count
+        self._duplex_batch_staged_sheet_count = 0
+
+    def _stage_for_duplex(self, sheets):
+        """Copy one worksheet or a selected-sheets collection into the batch."""
+        batch = self._duplex_batch_workbook
+        if batch is None:
+            raise PrinterError("The double-sided print batch was not initialized.")
+
+        before = batch.Worksheets.Count
+        sheets.Copy(After=batch.Worksheets(before))
+        added = batch.Worksheets.Count - before
+        if added < 1:
+            raise PrinterError(
+                "Excel did not add the selected pages to the double-sided batch.")
+        self._duplex_batch_staged_sheet_count += added
+
+    def _finish_duplex_batch(self):
+        """Remove Excel's blank starter tabs and submit the batch exactly once."""
+        batch = self._duplex_batch_workbook
+        if batch is None or self._duplex_batch_staged_sheet_count == 0:
+            return
+
+        # Workbooks.Add supplies one or more blank tabs.  Every staged page was
+        # appended after them, so deleting index 1 repeatedly removes only the
+        # starter tabs and leaves the report/cash-sheet order intact.
+        for _ in range(self._duplex_batch_default_sheet_count):
+            batch.Worksheets(1).Delete()
+
+        self._log(
+            f"Submitting {self._duplex_batch_staged_sheet_count} tab(s) as "
+            "one double-sided print job.",
+            kind="detail")
+        self._send_to_printer(batch)
+
+    def _close_duplex_batch(self):
+        batch = self._duplex_batch_workbook
+        self._duplex_batch_workbook = None
+        self._duplex_batch_default_sheet_count = 0
+        self._duplex_batch_staged_sheet_count = 0
+        if batch is not None:
+            try:
+                batch.Close(SaveChanges=False)
+            except Exception:
+                pass
+
     def _print_sheets(self, wb, worksheets):
         """
         Send several tabs of one workbook to the printer as a single job.
@@ -921,6 +1043,13 @@ class ExcelPrinter:
         as a group makes Excel emit one document, which the driver can then
         actually duplex. Grouped sheets print in workbook tab order.
         """
+        if self._duplex_batch_workbook is not None:
+            # Staging every tab in the shared workbook is what joins sheets
+            # from *different* source workbooks into the same physical job.
+            for ws in worksheets:
+                self._stage_for_duplex(ws)
+            return
+
         if len(worksheets) == 1:
             worksheets[0].Select()
             self._print_sheet(worksheets[0])
@@ -943,13 +1072,19 @@ class ExcelPrinter:
             self._print_sheet(ws)
 
     def _print_sheet(self, ws):
+        if self._duplex_batch_workbook is not None:
+            self._stage_for_duplex(ws)
+            return
+        self._send_to_printer(ws)
+
+    def _send_to_printer(self, printable):
         kwargs = {
             "Copies": self.settings.copies,
             "Collate": self.settings.collate,
         }
         if self._excel_active_printer:
             kwargs["ActivePrinter"] = self._excel_active_printer
-        ws.PrintOut(**kwargs)
+        printable.PrintOut(**kwargs)
 
     def _print_infor(self, excel, file_path):
         return self._print_workbook(
