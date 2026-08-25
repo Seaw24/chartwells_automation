@@ -25,7 +25,15 @@ class _FakeSheet:
         self.workbook = workbook
         self.print_calls = []
 
-    def Copy(self, After):
+    def Copy(self, Before=None, After=None):
+        if After is None:
+            excel = self.workbook.application
+            destination = _FakeWorkbook((), application=excel)
+            excel.Workbooks.added.append(destination)
+            excel.ActiveWorkbook = destination
+            destination.Worksheets.items.append(
+                _FakeSheet(f"{self.Name} copy", destination))
+            return
         destination = After.workbook
         destination.Worksheets.items.append(
             _FakeSheet(f"{self.Name} copy", destination))
@@ -38,10 +46,12 @@ class _FakeSheet:
 
 
 class _FakeWorkbook:
-    def __init__(self, names=("Sheet1",)):
+    def __init__(self, names=("Sheet1",), application=None):
+        self.application = application
         self.Worksheets = _FakeWorksheets(self, names)
         self.print_calls = []
         self.close_calls = []
+        self.activate_calls = 0
 
     def PrintOut(self, **kwargs):
         self.print_calls.append(kwargs)
@@ -49,20 +59,30 @@ class _FakeWorkbook:
     def Close(self, **kwargs):
         self.close_calls.append(kwargs)
 
+    def Activate(self):
+        self.activate_calls += 1
+
 
 class _FakeWorkbooks:
-    def __init__(self):
+    def __init__(self, excel):
+        self.excel = excel
         self.added = []
 
     def Add(self):
-        workbook = _FakeWorkbook()
+        workbook = _FakeWorkbook(application=self.excel)
         self.added.append(workbook)
         return workbook
 
 
+class _FakeExcel:
+    def __init__(self):
+        self.ActiveWorkbook = None
+        self.Workbooks = _FakeWorkbooks(self)
+
+
 class PrinterTests(unittest.TestCase):
     def test_duplex_stages_sheets_from_different_workbooks_in_one_job(self):
-        excel = types.SimpleNamespace(Workbooks=_FakeWorkbooks())
+        excel = _FakeExcel()
         printer = ExcelPrinter(settings={
             "duplex": True,
             "copies": 2,
@@ -70,8 +90,10 @@ class PrinterTests(unittest.TestCase):
         })
         printer._excel_active_printer = "Office Printer on Ne01:"
 
-        first = _FakeSheet("Monday", _FakeWorkbook(("Monday",)))
-        second = _FakeSheet("Tuesday", _FakeWorkbook(("Tuesday",)))
+        first = _FakeSheet(
+            "Monday", _FakeWorkbook(("Monday",), application=excel))
+        second = _FakeSheet(
+            "Tuesday", _FakeWorkbook(("Tuesday",), application=excel))
 
         printer._start_duplex_batch(excel)
         printer._print_sheet(first)

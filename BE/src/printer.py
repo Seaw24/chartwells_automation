@@ -73,8 +73,8 @@ class ExcelPrinter:
         self._windows_default_printer_original = None
         self._printer_driver_original = None
         self._excel_active_printer = None
+        self._duplex_batch_excel = None
         self._duplex_batch_workbook = None
-        self._duplex_batch_default_sheet_count = 0
         self._duplex_batch_staged_sheet_count = 0
 
     def _log(self, msg, kind="info"):
@@ -982,24 +982,59 @@ class ExcelPrinter:
             pass
 
     def _start_duplex_batch(self, excel):
-        """Create the staging workbook that turns the run into one print job."""
-        batch = excel.Workbooks.Add()
-        self._duplex_batch_workbook = batch
-        self._duplex_batch_default_sheet_count = batch.Worksheets.Count
+        """Enable staging so Excel can turn the run into one print job."""
+        self._duplex_batch_excel = excel
+        self._duplex_batch_workbook = None
         self._duplex_batch_staged_sheet_count = 0
 
     def _stage_for_duplex(self, sheets):
         """Copy one worksheet or a selected-sheets collection into the batch."""
+        excel = self._duplex_batch_excel
         batch = self._duplex_batch_workbook
-        if batch is None:
+        if excel is None:
             raise PrinterError("The double-sided print batch was not initialized.")
 
-        before = batch.Worksheets.Count
-        sheets.Copy(After=batch.Worksheets(before))
-        added = batch.Worksheets.Count - before
-        if added < 1:
-            raise PrinterError(
-                "Excel did not add the selected pages to the double-sided batch.")
+        try:
+            expected = max(1, int(sheets.Count))
+        except Exception:
+            expected = 1
+
+        if batch is None:
+            # Microsoft documents Copy() without Before/After as the reliable
+            # way to create a new workbook containing the copied sheet(s).
+            # Excel also makes that new workbook ActiveWorkbook, so this avoids
+            # the driver-dependent failure seen when copying the first tab into
+            # a separately pre-created blank workbook.
+            sheets.Copy()
+            batch = excel.ActiveWorkbook
+            if batch is None:
+                raise PrinterError(
+                    "Excel did not create the double-sided print workbook.")
+            self._duplex_batch_workbook = batch
+            try:
+                added = max(expected, int(batch.Worksheets.Count))
+            except Exception:
+                added = expected
+        else:
+            before = int(batch.Worksheets.Count)
+            destination = batch.Worksheets(before)
+            # Positional Before/After arguments are more dependable through
+            # pywin32 than a named optional argument on some Office builds.
+            sheets.Copy(None, destination)
+            try:
+                batch.Activate()
+            except Exception:
+                pass
+            try:
+                reported = int(batch.Worksheets.Count) - before
+            except Exception:
+                reported = 0
+            # Copy is synchronous and raises a COM error when it fails.  Some
+            # Office builds briefly return the old collection Count even after
+            # a successful copy, so do not turn that stale count into a false
+            # "pages were not added" failure.
+            added = max(expected, reported)
+
         self._duplex_batch_staged_sheet_count += added
 
     def _finish_duplex_batch(self):
@@ -1007,12 +1042,6 @@ class ExcelPrinter:
         batch = self._duplex_batch_workbook
         if batch is None or self._duplex_batch_staged_sheet_count == 0:
             return
-
-        # Workbooks.Add supplies one or more blank tabs.  Every staged page was
-        # appended after them, so deleting index 1 repeatedly removes only the
-        # starter tabs and leaves the report/cash-sheet order intact.
-        for _ in range(self._duplex_batch_default_sheet_count):
-            batch.Worksheets(1).Delete()
 
         self._log(
             f"Submitting {self._duplex_batch_staged_sheet_count} tab(s) as "
@@ -1022,8 +1051,8 @@ class ExcelPrinter:
 
     def _close_duplex_batch(self):
         batch = self._duplex_batch_workbook
+        self._duplex_batch_excel = None
         self._duplex_batch_workbook = None
-        self._duplex_batch_default_sheet_count = 0
         self._duplex_batch_staged_sheet_count = 0
         if batch is not None:
             try:
@@ -1043,7 +1072,7 @@ class ExcelPrinter:
         as a group makes Excel emit one document, which the driver can then
         actually duplex. Grouped sheets print in workbook tab order.
         """
-        if self._duplex_batch_workbook is not None:
+        if self._duplex_batch_excel is not None:
             # Staging every tab in the shared workbook is what joins sheets
             # from *different* source workbooks into the same physical job.
             for ws in worksheets:
@@ -1072,7 +1101,7 @@ class ExcelPrinter:
             self._print_sheet(ws)
 
     def _print_sheet(self, ws):
-        if self._duplex_batch_workbook is not None:
+        if self._duplex_batch_excel is not None:
             self._stage_for_duplex(ws)
             return
         self._send_to_printer(ws)
