@@ -169,9 +169,11 @@ jobs:
             --hidden-import win32com `
             --hidden-import win32com.client `
             --hidden-import win32print `
+            --hidden-import win32con `
             --hidden-import win32api `
             --hidden-import pythoncom `
             --hidden-import pywintypes `
+            --hidden-import win32timezone `
             --hidden-import UI.components.sidebar `
             --hidden-import UI.components.autofill_center `
             --hidden-import UI.components.autofill_center_runtime `

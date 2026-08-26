@@ -19,6 +19,10 @@ hiddenimports = [
     'win32api',
     'pythoncom',
     'pywintypes',
+    # pywintypes imports win32timezone lazily, the first time a COM call hands
+    # back a date. Cash sheets carry dates, so leaving it out crashed printing
+    # with "No module named win32timezone" in the frozen build only.
+    'win32timezone',
     'UI.components.sidebar',
     'UI.components.autofill_center',
     'UI.components.autofill_center_runtime',

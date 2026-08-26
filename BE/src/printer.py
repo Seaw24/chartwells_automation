@@ -767,10 +767,10 @@ class ExcelPrinter:
                            if n.lower() in ws_map]
                 for target in targets:
                     self._fit_hidden_numbers(target)
-                    self._expand_print_area(target, excel)
+                    self._expand_print_area(target)
                 count = len(targets)
                 if count > 0:
-                    self._print_sheets(wb, targets)
+                    self._print_sheets(wb, targets, fit_one_page=True)
                     self._log(
                         f"   ✓ {filename}  ({count} sheet(s))",
                         kind="detail")
@@ -915,7 +915,7 @@ class ExcelPrinter:
         except Exception:
             return None
 
-    def _expand_print_area(self, ws, excel):
+    def _expand_print_area(self, ws):
         """
         Print the whole tab, shrunk to fit on a single sheet of paper.
 
@@ -927,34 +927,151 @@ class ExcelPrinter:
         tall: a cash sheet is read as one table, so the columns shrinking is
         a far better trade than the bottom rows landing on a second page.
 
-        Manual page breaks saved in the template would otherwise still split
-        the page even at "fit to one page", so clear them first.
+        Each step that fails says so. Both halves used to swallow their
+        errors, which meant a tab that quietly fell back to the template's
+        frozen ``$A$1:$W$62`` was reported as printed exactly like one that
+        worked, and the missing rows were only discovered at the printer.
         """
+        name = self._sheet_name(ws)
         last = self._last_content_cell(ws)
         if not last:
-            return
-        row, col = last
+            self._log(
+                f"   {name}: could not find the last filled cell, so the "
+                "print area saved in the template is what will print.",
+                kind="warning")
+        else:
+            row, col = last
+            try:
+                ws.PageSetup.PrintArea = ws.Range(
+                    ws.Cells(1, 1), ws.Cells(row, col)).Address
+            except Exception as exc:
+                self._log(
+                    f"   {name}: could not widen the print area ({exc}), so "
+                    "rows past the template's saved area will be cut off.",
+                    kind="warning")
+        self._fit_to_one_page(ws)
+
+    # Excel refuses to scale below 10%, and no cash-sheet tab measured needs
+    # anything under ~40%, so hitting this floor means the print area is
+    # reaching somewhere it should not.
+    _MIN_ZOOM = 10
+
+    def _fit_to_one_page(self, ws):
+        """
+        Put one tab's whole print area on a single sheet of paper, verified.
+
+        Two steps, because "fit to one page" is a request Excel does not
+        always honour. First ask for it the normal way. Then read back
+        ``Pages.Count`` — Excel's own pagination, the only ground truth
+        available here — and if the tab still spans more than one page, drop
+        to an explicit zoom percentage and shrink until it does not.
+
+        The verify-and-shrink half exists because the request silently fails
+        in more than one way: a tab copied into the double-sided batch
+        workbook has its scaling re-derived by ``Worksheet.Copy``, and
+        ``Zoom = False`` is rejected outright by some pywin32/Excel pairings.
+        Both used to end the same way — a cash sheet cut off at the printer
+        with the run reporting success. An explicit integer zoom is the one
+        form Excel always accepts, so that is what the fallback uses.
+        """
+        name = self._sheet_name(ws)
         try:
-            excel.PrintCommunication = False
-        except Exception:
-            pass
-        try:
-            ws.PageSetup.PrintArea = ws.Range(
-                ws.Cells(1, 1), ws.Cells(row, col)).Address
+            # A manual page break saved in the template splits the page even
+            # at "fit to one page", so clear them before scaling.
             try:
                 ws.ResetAllPageBreaks()
             except Exception:
                 pass
-            ws.PageSetup.Zoom = False        # FitToPages only applies with Zoom off
+            ws.PageSetup.Zoom = False    # FitToPages only applies with Zoom off
             ws.PageSetup.FitToPagesWide = 1
             ws.PageSetup.FitToPagesTall = 1
+        except Exception as exc:
+            self._log(
+                f"   {name}: Excel refused fit-to-one-page ({exc}); "
+                "scaling by percentage instead.",
+                kind="detail")
+
+        pages = self._page_count(ws)
+        if pages is None or pages <= 1:
+            return      # fits, or this Excel cannot tell us — nothing to do
+        self._shrink_to_one_page(ws, name)
+
+    @staticmethod
+    def _page_count(ws):
+        """
+        Pages this tab would print right now, or None if Excel will not say.
+
+        Reading it forces a repagination, so it is asked once per tab on the
+        fast path and only repeated while actively searching for a zoom.
+        """
+        try:
+            return int(ws.PageSetup.Pages.Count)
+        except Exception:
+            return None
+
+    def _shrink_to_one_page(self, ws, name):
+        """
+        Binary-search the largest whole-percent zoom that still prints as one
+        page, so a tab that has to shrink shrinks no further than it must.
+
+        Bounded to a handful of probes: each one repaginates the sheet, and
+        landing within a percent or two of the best zoom is worth far more
+        than the last decimal.
+        """
+        low, high, best = self._MIN_ZOOM, 100, None
+        while low <= high:
+            zoom = (low + high) // 2
+            try:
+                ws.PageSetup.Zoom = zoom
+            except Exception as exc:
+                self._log(
+                    f"   {name}: could not set the print scale ({exc}); this "
+                    "tab may be cut off.",
+                    kind="warning")
+                return
+            pages = self._page_count(ws)
+            if pages is None:
+                self._log(
+                    f"   {name}: Excel stopped reporting its page count; "
+                    f"left at {zoom}%.",
+                    kind="warning")
+                return
+            if pages <= 1:
+                best = zoom          # fits — try to give it more room
+                low = zoom + 1
+            else:
+                high = zoom - 1      # still spilling — shrink further
+
+        if best is None:
+            self._log(
+                f"   {name}: will not fit on one page even at "
+                f"{self._MIN_ZOOM}% ({self._describe_area(ws)}). Check that "
+                "tab for values sitting outside the table.",
+                kind="warning")
+            return
+
+        try:
+            ws.PageSetup.Zoom = best
         except Exception:
             pass
-        finally:
-            try:
-                excel.PrintCommunication = True
-            except Exception:
-                pass
+        self._log(
+            f"   {name}: fit-to-one-page did not take, printed at {best}% "
+            "instead.",
+            kind="detail")
+
+    @staticmethod
+    def _describe_area(ws):
+        try:
+            return f"print area {ws.PageSetup.PrintArea or '?'}"
+        except Exception:
+            return "print area ?"
+
+    @staticmethod
+    def _sheet_name(ws):
+        try:
+            return str(ws.Name)
+        except Exception:
+            return "sheet"
 
     def _apply_page_setup(self, ws, excel):
         """Apply page settings used by Excel before printing."""
@@ -987,8 +1104,15 @@ class ExcelPrinter:
         self._duplex_batch_workbook = None
         self._duplex_batch_staged_sheet_count = 0
 
-    def _stage_for_duplex(self, sheets):
-        """Copy one worksheet or a selected-sheets collection into the batch."""
+    def _stage_for_duplex(self, sheets, fit_one_page=False):
+        """
+        Copy one worksheet or a selected-sheets collection into the batch.
+
+        ``fit_one_page`` re-applies the one-page scaling to the copies. The
+        print area rides along with ``Worksheet.Copy`` but the scaling does
+        not, so without this a cash sheet printed double-sided reverts to the
+        template's scaling and comes out cut off.
+        """
         excel = self._duplex_batch_excel
         batch = self._duplex_batch_workbook
         if excel is None:
@@ -1015,6 +1139,7 @@ class ExcelPrinter:
                 added = max(expected, int(batch.Worksheets.Count))
             except Exception:
                 added = expected
+            first_new = 1
         else:
             before = int(batch.Worksheets.Count)
             destination = batch.Worksheets(before)
@@ -1034,11 +1159,30 @@ class ExcelPrinter:
             # a successful copy, so do not turn that stale count into a false
             # "pages were not added" failure.
             added = max(expected, reported)
+            first_new = before + 1
 
+        if fit_one_page:
+            self._refit_staged_sheets(batch, first_new, added)
         self._duplex_batch_staged_sheet_count += added
 
+    def _refit_staged_sheets(self, batch, first_index, count):
+        """
+        Redo the print area and one-page scaling on the tabs just copied in.
+
+        The copy in the batch workbook is what actually prints, so it gets the
+        same treatment from scratch rather than trusting ``Worksheet.Copy`` to
+        have carried it over — it carries the print area but re-derives the
+        scaling, and the copy is measured on its own terms anyway.
+        """
+        for index in range(first_index, first_index + count):
+            try:
+                ws = batch.Worksheets(index)
+            except Exception:
+                continue
+            self._expand_print_area(ws)
+
     def _finish_duplex_batch(self):
-        """Remove Excel's blank starter tabs and submit the batch exactly once."""
+        """Submit the staged batch as one print job, exactly once."""
         batch = self._duplex_batch_workbook
         if batch is None or self._duplex_batch_staged_sheet_count == 0:
             return
@@ -1060,7 +1204,7 @@ class ExcelPrinter:
             except Exception:
                 pass
 
-    def _print_sheets(self, wb, worksheets):
+    def _print_sheets(self, wb, worksheets, fit_one_page=False):
         """
         Send several tabs of one workbook to the printer as a single job.
 
@@ -1076,19 +1220,19 @@ class ExcelPrinter:
             # Staging every tab in the shared workbook is what joins sheets
             # from *different* source workbooks into the same physical job.
             for ws in worksheets:
-                self._stage_for_duplex(ws)
+                self._stage_for_duplex(ws, fit_one_page)
             return
 
         if len(worksheets) == 1:
             worksheets[0].Select()
-            self._print_sheet(worksheets[0])
+            self._print_sheet(worksheets[0], fit_one_page)
             return
 
         try:
             for index, ws in enumerate(worksheets):
                 # Replace:=True on the first tab, False to add the rest.
                 ws.Select(index == 0)
-            self._print_sheet(wb.Windows(1).SelectedSheets)
+            self._print_sheet(wb.Windows(1).SelectedSheets, fit_one_page)
             return
         except Exception as exc:
             self._log(
@@ -1098,11 +1242,11 @@ class ExcelPrinter:
 
         for ws in worksheets:
             ws.Select()
-            self._print_sheet(ws)
+            self._print_sheet(ws, fit_one_page)
 
-    def _print_sheet(self, ws):
+    def _print_sheet(self, ws, fit_one_page=False):
         if self._duplex_batch_excel is not None:
-            self._stage_for_duplex(ws)
+            self._stage_for_duplex(ws, fit_one_page)
             return
         self._send_to_printer(ws)
 
