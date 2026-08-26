@@ -5,6 +5,7 @@ Tender Breakdown.xlsx
 *.pyc
 .DS_Store
 .vscode/
+*.code-workspace
 /myenv
 /.venv
 /.claude
