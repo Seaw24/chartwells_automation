@@ -151,7 +151,12 @@ class ProcessingTracker:
 
     def add_success(self, location, filename, warning=None):
         self.successful.append({"location": location, "filename": filename})
-        self._emit("success", f"   ✓ {location}")
+        # Name the workbook. A failure line already carries it; success did
+        # not, so a row written into the wrong file read exactly like a
+        # correct one and there was nothing in the log to check.
+        target = os.path.basename(filename) if filename else ""
+        self._emit("success",
+                   f"   ✓ {location}" + (f"  →  {target}" if target else ""))
         if warning:
             self.warnings.append(
                 {"location": location, "filename": filename, "msg": warning})
@@ -220,6 +225,8 @@ class CashSheetAutofillEngine:
         self.filled_days_by_file= {}  # Track which weekdays we filled for optional auto-printing at the end
         self.db_manager = TendersDBManager()
         self.printable_reports = set()   # ← ADD: report basenames with non-zero data
+        # Ambiguous pattern→workbook matches already reported this run.
+        self._casheet_match_warnings = set()
 
 
     # ═══════════════════════════════════════════════════════════════
@@ -488,19 +495,63 @@ class CashSheetAutofillEngine:
 
     def find_casheet_file(self, casheet_pattern):
         """
-        Find a cash-sheet file whose name contains *casheet_pattern*.
+        Find the cash-sheet workbook that *casheet_pattern* names.
 
-        The comparison ignores case and punctuation, so a pattern like
-        "City's Edge" still matches "City_s Edge Master.xlsx" — saving a
-        workbook often swaps punctuation in the file name.
+        A workbook is named "<venue> Master.xlsx", so the venue part is
+        whatever precedes "Master". That and the configured name are both
+        reduced to letters and digits — lower-cased, no spaces or punctuation,
+        so "City's Edge" still matches "City_s Edge Master.xlsx" — and then
+        compared outright.
+
+        The test used to be "does the file name contain the pattern", which is
+        what broke Shake Smart: "shakesmart" also sits inside "unionshakesmart",
+        so two workbooks matched and whichever the directory listing yielded
+        first won. On a drive that does not sort its entries that was the wrong
+        one every run — the Student Life Center's numbers went into the Union's
+        workbook and its own sheet stayed blank, while the log still read
+        "succeeded". An exact comparison leaves nothing to tie-break, so
+        directory order stops mattering.
         """
         target = _compact_venue(casheet_pattern)
         if not target:
             return None
-        for f in self.casheet_files:
-            if target in _compact_venue(f):
-                return f
-        return None
+
+        # Shortest name first, then alphabetical. Two files can still reduce
+        # to the same venue key — "… Master copy.xlsx" — and the least
+        # decorated one is the real workbook. "~$" files are Excel's lock file
+        # for a workbook someone still has open.
+        matches = sorted(
+            (f for f in self.casheet_files
+             if not f.startswith("~$")
+             and self._casheet_venue_key(f) == target),
+            key=lambda f: (len(f), f.casefold()),
+        )
+        if not matches:
+            return None
+        if len(matches) > 1:
+            self._warn_casheet_match(
+                f"'{casheet_pattern}' matches {len(matches)} cash sheets "
+                f"({', '.join(matches)}) — using '{matches[0]}'")
+        return matches[0]
+
+    @staticmethod
+    def _casheet_venue_key(filename):
+        """
+        The venue part of a cash-sheet file name, as letters and digits only.
+
+        "Shake Smart Master.xlsx" -> "shakesmart". Everything from "Master"
+        onward is dropped; a workbook that doesn't carry the word keeps its
+        whole name, so a plain "Shake Smart.xlsx" still resolves.
+        """
+        stem = os.path.splitext(filename)[0]
+        cut = stem.casefold().find("master")
+        return _compact_venue(stem[:cut] if cut > 0 else stem)
+
+    def _warn_casheet_match(self, msg):
+        """Warn once per run — find_casheet_file runs per venue, per date."""
+        if msg not in self._casheet_match_warnings:
+            self._casheet_match_warnings.add(msg)
+            self.tracker.warning(msg)
 
     def fill_and_save(self, casheet_path, location_in_casheet, raw_location,
                       location_in_db, data_dict, label, source="infor"):
