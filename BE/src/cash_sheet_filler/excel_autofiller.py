@@ -141,6 +141,25 @@ class ExcelAutofiller:
             f"Location '{self.location}' not found in column {location_col}")
         return False
 
+    def _find_totals_row(self):
+        """
+        Row carrying the sheet's TOTALS line, found by its label rather than a
+        fixed number so a re-laid-out template still resolves.
+
+        The Grubhub flex payment count is written one row below it. That keeps
+        the count clear of the totals row's own ``=SUM(F5:F49)`` over the
+        register table — a count parked inside that range would be added to
+        the flex dollars and quietly inflate the total.
+        """
+        location_col = self.fill_cols.get("location")
+        if location_col is None:
+            return None
+        for r in range(self.start_row, self.ws.max_row + 1):
+            value = self.ws.cell(r, location_col).value
+            if isinstance(value, str) and value.strip().lower() == "totals":
+                return r
+        return None
+
     def _find_date_col(self):
         """
         Column the header date value belongs in: the cell just right of the
@@ -313,6 +332,23 @@ class ExcelAutofiller:
             cyoa_col = self.fill_cols.get("cyoa")
             if cyoa_col and parser.get("cyoa") is not None:
                 put(self.row, cyoa_col, parser.get("cyoa"), "1M meal")
+
+            # Step 5: how many payments were tendered in Flex Dollars. Only
+            # the Grubhub transaction report carries this, so an Infor/Tavlo
+            # fill leaves the cell alone rather than blanking it. Zero is
+            # written as None for the same reason a zero tender is — it
+            # erases last run's number instead of leaving a stale count.
+            flex_count = parser.get("flex_count")
+            flex_col = self.fill_cols.get("flex")
+            if flex_count is not None and flex_col:
+                totals_row = self._find_totals_row()
+                if totals_row:
+                    put(totals_row + 1, flex_col,
+                        flex_count or None, "flex payments")
+                else:
+                    self._log_warning(
+                        "TOTALS row not found — flex payment count "
+                        "not written")
 
             # Report any unmatched tenders
             if unmatched_tenders:

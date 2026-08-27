@@ -692,6 +692,7 @@ class CashSheetAutofillEngine:
             "tax": 0.0,
             "tenders": {},
             "discounts": 0.0,
+            "flex_count": 0,
         }
         for d in data_list:
             if d.get("is_swoop"):
@@ -714,6 +715,9 @@ class CashSheetAutofillEngine:
             merged["total_sales"] += d.get("total_sales", 0.0)
             merged["tax"] += d.get("tax", 0.0)
             merged["discounts"] += d.get("discounts", 0.0)
+            # A Swoop Swap's flex payment is still a flex payment — the count
+            # follows the same merge rule its dollars do.
+            merged["flex_count"] += d.get("flex_count") or 0
             for k, v in d.get("tenders", {}).items():
                 merged["tenders"][k] = merged["tenders"].get(k, 0.0) + v
         return merged
@@ -958,6 +962,13 @@ class CashSheetAutofillEngine:
         t.trace(f"│ {'tenders':<12}: " + (" · ".join(
             f"{k} ${v:.2f}" for k, v in sorted(live.items())) or "none"))
 
+        flex_counts = [d.get("flex_count") or 0 for d in data_list]
+        if any(flex_counts):
+            sum_line("flex payments", flex_counts, merged.get("flex_count", 0),
+                     money=False)
+            t.trace("│               (rows tendered in Flex Dollars → "
+                    "flex column, one row under TOTALS)")
+
         tender_sum = sum(merged.get("tenders", {}).values())
         delta = tender_sum - merged["total_sales"]
         mark = "✓ balances" if abs(delta) < 0.005 else f"✗ off by ${delta:+.2f}"
@@ -1024,6 +1035,8 @@ class CashSheetAutofillEngine:
             line += f"  swoop count {merged_data['swoop_swap']}"
         if merged_data.get("cyoa") is not None:
             line += f"  1M meal ${merged_data['cyoa']:.2f}"
+        if merged_data.get("flex_count"):
+            line += f"  flex payments {merged_data['flex_count']}"
         self.tracker.detail(line)
 
         self.fill_and_save(

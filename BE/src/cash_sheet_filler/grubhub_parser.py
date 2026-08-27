@@ -14,6 +14,9 @@ into ``data[date][venue]`` and reconciles a few quirks of the Grubhub format:
 * Discounts are reconciled later (in ``main._add_discounts``).
 * Meal count is tracked only for diagnostics. Cash-sheet order count now comes
   from the separate Sales-at-a-Glance report.
+* Flex payments are counted as well as summed. One CSV row is one payment, so
+  the count is simply how many rows tendered Flex Dollars — the cash sheet
+  wants both the dollars and how many orders produced them.
 
 Logging has two levels. By default the class reports only aggregates so the
 UI stays calm. With ``verbose_trace`` on in the config it also prints each
@@ -208,6 +211,7 @@ class GrubhubParser(BaseParser):
                 "total_tax": 0.0,
                 "tenders": CASHEET_TENDERS.copy(),
                 "total_discounts": 0.0,
+                "flex_count": 0,
             },
         )
         entry["total_count"] += meal_count
@@ -220,6 +224,10 @@ class GrubhubParser(BaseParser):
         if payment_method in GRUBHUB_TENDERS:
             casheet_key = GRUBHUB_TENDERS[payment_method]
             entry["tenders"][casheet_key] += sale
+            # Every flex row is one flex payment — the cash sheet carries the
+            # count beside the dollars.
+            if casheet_key == "flex":
+                entry["flex_count"] += 1
         else:
             casheet_key = None
             self._unmapped_tenders.add(payment_method)
@@ -273,7 +281,8 @@ class GrubhubParser(BaseParser):
                 f"└ venue total: sales ${entry['total_sales']:.2f} · "
                 f"tax ${entry['total_tax']:.2f} · "
                 f"discounts held ${entry['total_discounts']:.2f} · "
-                f"meals {entry['total_count']}")
+                f"meals {entry['total_count']} · "
+                f"flex payments {entry['flex_count']}")
 
     def get_dates(self): return list(self.data.keys())
     def get_venues(self, date): return list(self.data.get(date, {}).keys())
@@ -290,6 +299,7 @@ class GrubhubParser(BaseParser):
             "total_sales": raw["total_sales"],
             "tax": raw["total_tax"],
             "discounts": raw["total_discounts"],
+            "flex_count": raw["flex_count"],
             "tenders": raw["tenders"].copy(),
         }
 
