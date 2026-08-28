@@ -898,18 +898,22 @@ class CashSheetAutofillEngine:
         return date_groups
 
     @staticmethod
-    def _sibling_base_venue(venue, suffix):
+    def _sibling_base_venue(venue, marker):
         """
-        Strip a sibling-venue *suffix*; None if the venue doesn't carry it.
+        Strip a sibling-venue *marker*; None if the venue doesn't carry it.
 
-        Grubhub venue names are hand-typed, so tolerate stray separators
-        around the suffix — e.g. "QDBA - Swoop Swap Shop -" still yields
-        "QDBA".
+        Grubhub venue names are hand-typed, so the marker is not reliably the
+        last thing on the line. Stray separators trail it ("QDBA - Swoop Swap
+        Shop -"), and some venues append a campus qualifier after it ("Union
+        Food Court - Swoop Swap - Utah"). Everything from the marker rightward
+        is the sibling label either way, so the base venue is whatever comes
+        before it — both of those yield "QDBA" and "Union Food Court".
         """
-        clean = venue.strip().rstrip(" -–—").strip()
-        if not clean.lower().endswith(suffix):
+        clean = " ".join(venue.split())
+        idx = clean.casefold().find(marker)
+        if idx < 0:
             return None
-        return clean[: -len(suffix)].strip(" -–—") or None
+        return clean[:idx].strip(" -–—").strip() or None
 
     @staticmethod
     def _venue_map_entry(venue):
@@ -924,16 +928,21 @@ class CashSheetAutofillEngine:
         base = self._swoop_base_venue(venue) or self._cyoa_base_venue(venue)
         return self._venue_map_entry(base or venue) is not None
 
-    # Grubhub types the Swoop Swap suffix by hand and sometimes drops the
-    # "Shop" — "Greek Kabob - Swoop Swap". Longest first, so the full suffix
+    # Grubhub types the Swoop Swap marker by hand and sometimes drops the
+    # "Shop" — "Greek Kabob - Swoop Swap". Longest first, so the full marker
     # always wins and never leaves a stray "Shop" on the base venue name.
-    _SWOOP_SUFFIXES = ("swoop swap shop", "swoop swap")
+    _SWOOP_MARKERS = ("swoop swap shop", "swoop swap")
 
     @classmethod
     def _swoop_base_venue(cls, venue):
-        """'City Edge - Swoop Swap Shop' -> 'City Edge'; else None."""
-        for suffix in cls._SWOOP_SUFFIXES:
-            base = cls._sibling_base_venue(venue, suffix)
+        """
+        'City Edge - Swoop Swap Shop' -> 'City Edge'; else None.
+
+        Also 'Union Food Court - Swoop Swap - Utah' -> 'Union Food Court' —
+        the campus qualifier after the marker is part of the sibling label.
+        """
+        for marker in cls._SWOOP_MARKERS:
+            base = cls._sibling_base_venue(venue, marker)
             if base:
                 return base
         return None

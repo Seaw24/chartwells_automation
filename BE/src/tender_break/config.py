@@ -4,6 +4,15 @@ import json
 import shutil
 from pathlib import Path
 
+try:
+    from BE.src.path_helper import sync_config_with_defaults as _sync_config_with_defaults
+except ImportError:
+    try:
+        from ..path_helper import sync_config_with_defaults as _sync_config_with_defaults
+    except ImportError:
+        def _sync_config_with_defaults(editable, bundled):
+            return []
+
 
 def _get_config_path():
     filename = "tender_config.json"
@@ -14,6 +23,10 @@ def _get_config_path():
         if not editable.exists():
             editable.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(bundled, editable)
+        else:
+            # Top up a config seeded by an older build with the keys this
+            # build's default has gained — additions only, nothing replaced.
+            _sync_config_with_defaults(editable, bundled)
         return editable
 
     return Path(__file__).parent / filename

@@ -4,13 +4,23 @@ import json
 import shutil
 from pathlib import Path
 
+try:
+    from BE.src.path_helper import sync_config_with_defaults as _sync_config_with_defaults
+except ImportError:
+    try:
+        from ..path_helper import sync_config_with_defaults as _sync_config_with_defaults
+    except ImportError:
+        def _sync_config_with_defaults(editable, bundled):
+            return []
+
 # Initialize the database manager
 
 
 def _get_config_path():
     """
     Editable config lives next to the .exe (or in dev, next to this file).
-    On first run, copy the bundled default to the editable location.
+    On first run, copy the bundled default to the editable location; on every
+    later run, fold anything the bundled default has gained since into it.
     """
     filename = "cash_sheet_config.json"
 
@@ -23,6 +33,11 @@ def _get_config_path():
         if not editable.exists():
             editable.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(bundled, editable)
+        else:
+            # A config seeded by an older build never sees locations added to
+            # the default afterwards, so top it up — additions only, every
+            # value the user already has is left alone.
+            _sync_config_with_defaults(editable, bundled)
         return editable
     else:
         return Path(__file__).parent / filename

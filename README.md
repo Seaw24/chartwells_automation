@@ -205,9 +205,9 @@ pyinstaller chartwells.spec --clean
 # → dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.23`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.24`) lives in [`updater.py`](BE/src/updater.py).
 
-Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code.
+Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code. That folder is seeded from the bundled defaults on first run and never overwritten afterwards, so on every later launch the loaders top it up instead: any key the shipped default has gained — a new location, a new tender, a new setting — is merged in, while every value already there (including the user's own locations and folder paths) is left untouched. Nothing is ever replaced or removed.
 
 ---
 
