@@ -363,6 +363,140 @@ class _DatePickerBtn(ctk.CTkFrame):
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  PER-CARD RANGE MODES
+#  Every KPI card carries its own range. The end is always "today" —
+#  a card answers "from <start> until now", never a closed window.
+# ══════════════════════════════════════════════════════════════════════
+CARD_MODES: dict[str, str] = {
+    "7d": "Last 7 Days",
+    "30d": "Last 30 Days",
+    "month": "This Month",
+    "all": "All Time",
+    "custom": "Custom",
+}
+
+# Only these three are offered inside a card popup; "month" arrives via a
+# global preset override, "custom" via the calendar.
+CARD_QUICK_MODES = ["7d", "30d", "all"]
+
+CARD_RANGE_SETTING = "kpi_card_ranges"
+GLOBAL_PRESET_SETTING = "kpi_global_preset"
+
+# Card 1 is the Flex Total budget entry — a hand-entered figure, not an
+# aggregate over a window, so it carries no range chip.
+CARD_RANGE_INDICES = [0, 2, 3, 4, 5]
+
+
+def _range_for_mode(mode: str, custom: date | None) -> tuple[date | None, date | None]:
+    """Resolve a card mode into (from, to). Cards always run up to today."""
+    today = date.today()
+    if mode == "7d":
+        return today - timedelta(days=6), today
+    if mode == "30d":
+        return today - timedelta(days=29), today
+    if mode == "month":
+        return today.replace(day=1), today
+    if mode == "custom":
+        return custom, (today if custom else None)
+    return None, None
+
+
+def _range_key(d_from: date | None, d_to: date | None) -> tuple:
+    return (d_from.isoformat() if d_from else None,
+            d_to.isoformat() if d_to else None)
+
+
+class _CardRangePopup(ctk.CTkToplevel):
+    """Compact mode picker hanging off a KPI card's range chip."""
+
+    W = 190
+
+    def __init__(self, anchor, mode, custom, on_select):
+        super().__init__(anchor)
+        self.overrideredirect(True)
+        self.configure(fg_color=CARD_BG)
+        self.attributes("-topmost", True)
+        self._anchor = anchor
+        self._on_select = on_select
+        self._mode = mode
+        self._custom = custom
+
+        self._build()
+        self.update_idletasks()
+        h = self.winfo_reqheight()
+        x = anchor.winfo_rootx()
+        y = anchor.winfo_rooty() + anchor.winfo_height() + 4
+        self.geometry(f"{self.W}x{h}+{x}+{y}")
+        self.grab_set()
+        self.focus_set()
+        self.bind("<Escape>", lambda _: self.destroy())
+
+    def _build(self):
+        outer = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=10,
+                             border_width=1, border_color=BORDER)
+        outer.pack(fill="both", expand=True, padx=2, pady=2)
+
+        ctk.CTkLabel(
+            outer, text="SHOW FROM",
+            font=ctk.CTkFont(family=FONT, size=9, weight="bold"),
+            text_color=TEXT_MUTED,
+        ).pack(anchor="w", padx=12, pady=(10, 4))
+
+        for key in CARD_QUICK_MODES:
+            active = key == self._mode
+            ctk.CTkButton(
+                outer, text=CARD_MODES[key], height=28, corner_radius=6,
+                fg_color=ACCENT if active else "transparent",
+                text_color="white" if active else TEXT_PRIMARY,
+                hover_color=ACCENT_HOVER if active else ACCENT_LIGHT,
+                font=ctk.CTkFont(family=FONT, size=11,
+                                 weight="bold" if active else "normal"),
+                anchor="w", cursor="hand2",
+                command=lambda k=key: self._choose(k, None),
+            ).pack(fill="x", padx=8, pady=1)
+
+        ctk.CTkFrame(outer, height=1, fg_color=BORDER).pack(
+            fill="x", padx=12, pady=(6, 6))
+
+        is_custom = self._mode == "custom" and self._custom
+        ctk.CTkButton(
+            outer,
+            text=(f"  {self._custom.strftime('%b %d, %Y')}" if is_custom
+                  else "  Pick a start date…"),
+            height=28, corner_radius=6,
+            fg_color=ACCENT_LIGHT if is_custom else "transparent",
+            text_color=ACCENT if is_custom else TEXT_PRIMARY,
+            hover_color=BLUE_LIGHT if is_custom else ACCENT_LIGHT,
+            font=ctk.CTkFont(family=FONT, size=11,
+                             weight="bold" if is_custom else "normal"),
+            image=get_icon("calendar", 13,
+                           ACCENT if is_custom else TEXT_SEC),
+            compound="left", anchor="w", cursor="hand2",
+            command=self._open_calendar,
+        ).pack(fill="x", padx=8, pady=(0, 10))
+
+    def _choose(self, mode, custom):
+        self.destroy()
+        self._on_select(mode, custom)
+
+    def _open_calendar(self):
+        # Drop this popup's grab before the calendar takes its own, or the
+        # nested grab leaves the day buttons unclickable.
+        anchor = self._anchor
+        initial = self._custom
+        on_select = self._on_select
+        self.destroy()
+
+        def _picked(d):
+            if d is None:
+                on_select("all", None)
+            else:
+                on_select("custom", d)
+
+        _CalendarPopup(anchor, _picked, initial)
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  MAIN ANALYTICS PAGE
 # ══════════════════════════════════════════════════════════════════════
 class AnalyticsPage(ctk.CTkFrame):
@@ -378,6 +512,17 @@ class AnalyticsPage(ctk.CTkFrame):
         # flex total 
         self._flex_total: float = 0.0
 
+        # per-card ranges — index matches _kpi_refs; each runs start → today
+        self._card_modes: dict[int, str] = {
+            i: "all" for i in CARD_RANGE_INDICES}
+        self._card_custom: dict[int, date | None] = {
+            i: None for i in CARD_RANGE_INDICES}
+        self._card_range_btns: dict[int, ctk.CTkButton] = {}
+        # restored custom dates, applied once the date bar exists
+        self._pending_from: date | None = None
+        self._pending_to: date | None = None
+        # summaries keyed by resolved range, one entry per distinct range
+        self._range_data: dict[tuple, dict] = {}
 
         # cached query results
         self._summary: dict = {}
@@ -394,6 +539,9 @@ class AnalyticsPage(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(4, weight=1)
 
+        self._load_card_config()
+        self._load_global_preset()
+
         self._build_header()       # row 0
         self._build_date_bar()     # row 1
         self._build_kpi_row()      # row 2
@@ -402,6 +550,133 @@ class AnalyticsPage(ctk.CTkFrame):
 
         self.after(75, self._drain_query_results)
         self.after(250, self._auto_load)
+
+    # ══════════════════════════════════════════════════════════════
+    #  PER-CARD RANGE CONFIG  (persisted in app_settings)
+    # ══════════════════════════════════════════════════════════════
+    def _load_card_config(self):
+        """Restore each card's saved mode/start date, so the range a card
+        was left on is still the range it shows next launch."""
+        raw = self.db.get_setting(CARD_RANGE_SETTING, default=None)
+        if not isinstance(raw, dict):
+            return
+        for key, cfg in raw.items():
+            try:
+                idx = int(key)
+            except (TypeError, ValueError):
+                continue
+            if idx not in self._card_modes or not isinstance(cfg, dict):
+                continue
+            mode = cfg.get("mode")
+            if mode in CARD_MODES:
+                self._card_modes[idx] = mode
+            start = cfg.get("start")
+            if start:
+                try:
+                    self._card_custom[idx] = datetime.strptime(
+                        start, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    self._card_custom[idx] = None
+            # A custom card with no usable start date is meaningless.
+            if self._card_modes[idx] == "custom" and not self._card_custom[idx]:
+                self._card_modes[idx] = "all"
+
+    def _load_global_preset(self):
+        """Restore the chip row (and its custom dates) from last session."""
+        raw = self.db.get_setting(GLOBAL_PRESET_SETTING, default=None)
+        if not isinstance(raw, dict):
+            return
+        preset = raw.get("preset")
+        if preset in CARD_MODES:
+            self._active_preset = preset
+        for attr, key in (("_pending_from", "from"), ("_pending_to", "to")):
+            val = raw.get(key)
+            parsed = None
+            if val:
+                try:
+                    parsed = datetime.strptime(val, "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    parsed = None
+            setattr(self, attr, parsed)
+        # A custom preset with no start date can't be resolved into a range.
+        if self._active_preset == "custom" and not self._pending_from:
+            self._active_preset = "all"
+
+    def _save_global_preset(self):
+        payload = {
+            "preset": self._active_preset,
+            "from": (self._dp_from.value.isoformat()
+                     if self._dp_from.value else None),
+            "to": (self._dp_to.value.isoformat()
+                   if self._dp_to.value else None),
+        }
+        try:
+            self.db.set_setting(GLOBAL_PRESET_SETTING, payload)
+        except Exception:
+            pass  # a failed preference write must not break the dashboard
+
+    def _save_card_config(self):
+        payload = {
+            str(i): {
+                "mode": self._card_modes[i],
+                "start": (self._card_custom[i].isoformat()
+                          if self._card_custom[i] else None),
+            }
+            for i in self._card_modes
+        }
+        try:
+            self.db.set_setting(CARD_RANGE_SETTING, payload)
+        except Exception:
+            pass  # a failed preference write must not break the dashboard
+
+    def _card_range(self, idx: int) -> tuple[date | None, date | None]:
+        return _range_for_mode(self._card_modes[idx], self._card_custom[idx])
+
+    def _card_range_text(self, idx: int) -> str:
+        mode = self._card_modes[idx]
+        if mode == "custom" and self._card_custom[idx]:
+            return f"  {self._card_custom[idx].strftime('%b %d, %Y')} → now"
+        return f"  {CARD_MODES.get(mode, 'All Time')}"
+
+    def _refresh_card_range_btns(self):
+        for idx, btn in self._card_range_btns.items():
+            custom = self._card_modes[idx] == "custom"
+            btn.configure(
+                text=self._card_range_text(idx),
+                text_color=ACCENT if custom else TEXT_MUTED,
+                image=get_icon("calendar", 12,
+                               ACCENT if custom else TEXT_MUTED))
+
+    def _open_card_range(self, idx: int):
+        if self._is_loading:
+            return
+        _CardRangePopup(
+            self._card_range_btns[idx], self._card_modes[idx],
+            self._card_custom[idx],
+            lambda mode, custom, i=idx: self._set_card_range(i, mode, custom))
+
+    def _set_card_range(self, idx: int, mode: str, custom: date | None):
+        if mode == "custom" and custom is None:
+            return
+        if (self._card_modes[idx] == mode
+                and self._card_custom[idx] == custom):
+            return
+        self._card_modes[idx] = mode
+        if mode == "custom":
+            self._card_custom[idx] = custom
+        self._refresh_card_range_btns()
+        self._save_card_config()
+        self._query(*self._current_range)
+
+    def _override_all_cards(self, mode: str, start: date | None):
+        """A global preset wins over every per-card range."""
+        for idx in self._card_modes:
+            self._card_modes[idx] = mode
+            if mode == "custom":
+                self._card_custom[idx] = start
+        if self._card_range_btns:
+            self._refresh_card_range_btns()
+        self._save_card_config()
 
     # ══════════════════════════════════════════════════════════════
     #  HEADER
@@ -487,7 +762,7 @@ class AnalyticsPage(ctk.CTkFrame):
             command=self._on_custom_apply, cursor="hand2")
         self._custom_apply_btn.pack(side="left")
 
-        self._style_presets("all")
+        self._style_presets(self._active_preset)
 
     def _style_presets(self, active):
         for key, btn in self._preset_btns.items():
@@ -498,22 +773,21 @@ class AnalyticsPage(ctk.CTkFrame):
                 btn.configure(fg_color=ACCENT_LIGHT, text_color=ACCENT,
                               hover_color=BLUE_LIGHT)
 
-    def _select_preset(self, key):
+    def _select_preset(self, key, override_cards: bool = True):
+        """*override_cards* is True only for a real click on a preset chip —
+        a programmatic re-run (page revisit, location change) must leave the
+        saved per-card ranges alone."""
         self._active_preset = key
         self._style_presets(key)
+        if override_cards:
+            self._save_global_preset()
         if key == "custom":
             self._custom_row.grid(row=1, column=0, sticky="w", pady=(6, 0))
             return
         self._custom_row.grid_forget()
-        today = date.today()
-        if key == "7d":
-            d_from, d_to = today - timedelta(days=6), today
-        elif key == "30d":
-            d_from, d_to = today - timedelta(days=29), today
-        elif key == "month":
-            d_from, d_to = today.replace(day=1), today
-        else:
-            d_from, d_to = None, None
+        d_from, d_to = _range_for_mode(key, None)
+        if override_cards:
+            self._override_all_cards(key, None)
         self._query(d_from, d_to)
 
     def _on_custom_apply(self):
@@ -523,6 +797,12 @@ class AnalyticsPage(ctk.CTkFrame):
             self._show_empty_state(
                 "Invalid custom range. Choose a start date before the end date.")
             return
+        # Cards run start → today, so they inherit only the start date.
+        if self._dp_from.value:
+            self._override_all_cards("custom", self._dp_from.value)
+        else:
+            self._override_all_cards("all", None)
+        self._save_global_preset()
         self._query(self._dp_from.value, self._dp_to.value)
 
     def _set_controls_enabled(self, enabled: bool):
@@ -588,13 +868,20 @@ class AnalyticsPage(ctk.CTkFrame):
 
         for r, row_meta in enumerate([row0, row1]):
             for c, (icon, label, default, accent, bg, kind) in enumerate(row_meta):
+                idx = len(self._kpi_refs)
                 refs = self._make_kpi_card(
                     self._kpi_container, r, c,  
-                    icon, label, default, accent, bg, kind)
+                    icon, label, default, accent, bg, kind,
+                    idx if idx in self._card_modes else None)
                 self._kpi_refs.append(refs)
 
-        # Bind focus-out on the Flex Total entry (index 1)
+        self._refresh_card_range_btns()
+
+        # Save the Flex Total entry on click-away, Tab-away, or Enter.
         flex_entry = self._kpi_refs[1]["value"]
+        flex_entry.bind("<Return>", self._on_flex_total_focus_out)
+        flex_entry.bind("<KP_Enter>", self._on_flex_total_focus_out)
+        flex_entry.bind("<FocusOut>", self._on_flex_total_focus_out)
         self.winfo_toplevel().bind("<Button-1>", self._maybe_release_flex, add="+")
 
         # Static sub-message for the input card (managed only by save handler after this)
@@ -602,7 +889,7 @@ class AnalyticsPage(ctk.CTkFrame):
             text="Editable · saves on click-away", text_color=TEXT_MUTED)
 
     def _make_kpi_card(self, parent, row, col, icon, label, value,
-                   accent, icon_bg, kind="label"):
+                   accent, icon_bg, kind="label", idx=None):
         card = ctk.CTkFrame(parent, fg_color=CARD_BG, corner_radius=12,
                             border_width=1, border_color=BORDER)
         card.grid(row=row, column=col, sticky="nsew", padx=5, pady=5)
@@ -654,55 +941,55 @@ class AnalyticsPage(ctk.CTkFrame):
                                 text_color=TEXT_MUTED)
         change_lbl.pack(anchor="w")
 
+        if idx is not None:
+            range_btn = ctk.CTkButton(
+                inner, text="", height=22, corner_radius=6,
+                fg_color="transparent", text_color=TEXT_MUTED,
+                hover_color=ACCENT_LIGHT,
+                font=ctk.CTkFont(family=FONT, size=10),
+                image=get_icon("calendar", 12, TEXT_MUTED),
+                compound="left", anchor="w", cursor="hand2",
+                command=lambda i=idx: self._open_card_range(i))
+            range_btn.pack(anchor="w", fill="x", pady=(6, 0))
+            self._card_range_btns[idx] = range_btn
+
         return {"value": val_widget, "change": change_lbl,
                 "kind": kind, "default_color": accent}
 
+    def _card_data(self, idx: int) -> dict:
+        """The fetched bundle for whatever range card *idx* is set to."""
+        return self._range_data.get(_range_key(*self._card_range(idx)), {})
+
     def _update_kpis(self):
-        s = self._summary
-        ps = self._prev_summary
-        rc = s.get("record_count", 0)
-        total = float(s.get("total_sales", 0))
-        meals = int(s.get("meal_count", 0))
-
-        n_days = len(self._daily) if self._daily else 1
-        daily_avg = total / n_days if n_days else 0
-
-        prev_total = float(ps.get("total_sales", 0))
-        prev_meals = int(ps.get("meal_count", 0))
-        prev_days = len(self._prev_daily) if self._prev_daily else 1
-        prev_daily_avg = prev_total / prev_days if prev_days else 0
-
-        # Flex tracking
-        flex_used = float(s.get("flex", 0))
-        flex_total = float(self._flex_total)
-        flex_balance = flex_total - flex_used
-
-        top_loc, top_loc_amt = "—", ""
-        if self._by_location:
-            top = self._by_location[0]
-            top_loc = top["location"]
-            top_loc_amt = f"${float(top['total_sales']):,.2f}"
-
         def _pp_change(ref, val_text, val, prev):
             ref["value"].configure(text=val_text)
             change = _pct_change(val, prev)
             if change is None:
                 ref["change"].configure(text="", text_color=TEXT_MUTED)
                 return
-            arrow = "▲" if change >= 0 else "▼"
+            arrow = "\u25b2" if change >= 0 else "\u25bc"
             color = GREEN if change >= 0 else RED
             ref["change"].configure(
                 text=f"{arrow} {abs(change):.1f}% vs prior period",
                 text_color=color)
+
         # 0: Total Revenue
+        d0 = self._card_data(0)
+        total = float(d0.get("summary", {}).get("total_sales", 0))
+        prev_total = float(d0.get("prev_summary", {}).get("total_sales", 0))
         _pp_change(self._kpi_refs[0], f"${total:,.2f}", total, prev_total)
 
         # 1: Flex Total — DO NOT TOUCH (user-controlled input)
 
-        # 2: Flex Balance
+        # 2: Flex Balance — budget minus flex spent over THIS card's range
+        d2 = self._card_data(2)
+        flex_used = float(d2.get("summary", {}).get("flex", 0))
+        flex_total = float(self._flex_total)
+        flex_balance = flex_total - flex_used
         bal_ref = self._kpi_refs[2]
         if flex_balance >= 0:
-            bal_ref["value"].configure(text=f"${flex_balance:,.2f}", text_color=GREEN)
+            bal_ref["value"].configure(
+                text=f"${flex_balance:,.2f}", text_color=GREEN)
             bal_ref["change"].configure(
                 text=f"${flex_used:,.2f} used of ${flex_total:,.2f}",
                 text_color=TEXT_SEC)
@@ -714,20 +1001,41 @@ class AnalyticsPage(ctk.CTkFrame):
                 text_color=RED)
 
         # 3: Daily Average
-        _pp_change(self._kpi_refs[3], f"${daily_avg:,.2f}", daily_avg, prev_daily_avg)
+        d3 = self._card_data(3)
+        d3_total = float(d3.get("summary", {}).get("total_sales", 0))
+        d3_days = len(d3.get("daily") or []) or 1
+        daily_avg = d3_total / d3_days
+        prev3_total = float(d3.get("prev_summary", {}).get("total_sales", 0))
+        prev3_days = len(d3.get("prev_daily") or []) or 1
+        prev_daily_avg = prev3_total / prev3_days
+        _pp_change(self._kpi_refs[3], f"${daily_avg:,.2f}",
+                   daily_avg, prev_daily_avg)
 
         # 4: Meals Served
+        d4 = self._card_data(4)
+        meals = int(d4.get("summary", {}).get("meal_count", 0))
+        prev_meals = int(d4.get("prev_summary", {}).get("meal_count", 0))
         _pp_change(self._kpi_refs[4], f"{meals:,}", meals, prev_meals)
 
         # 5: Top Location
+        d5 = self._card_data(5)
+        by_loc = d5.get("by_location") or []
         loc_ref = self._kpi_refs[5]
-        loc_ref["value"].configure(text=top_loc)
-        loc_ref["change"].configure(
-            text=top_loc_amt, text_color=TEXT_SEC) if top_loc_amt else \
+        if by_loc:
+            loc_ref["value"].configure(text=by_loc[0]["location"])
+            loc_ref["change"].configure(
+                text=f"${float(by_loc[0]['total_sales']):,.2f}",
+                text_color=TEXT_SEC)
+        else:
+            loc_ref["value"].configure(text="\u2014")
             loc_ref["change"].configure(text="")
 
+        # Header badge still describes the chart filter, not any one card.
+        rc = self._summary.get("record_count", 0)
+        n_days = len(self._daily) if self._daily else 0
         self._rec_badge.configure(
-            text=f"{rc} records  •  {n_days} days" if rc else "")
+            text=f"{rc} records  \u2022  {n_days} days" if rc else "")
+
     def _load_flex_total(self):
         """Pull flex_total from app_settings into widget + state."""
         from BE.src.db.tendersdb_manager import TendersDBManager  # adjust import to match your style
@@ -847,33 +1155,45 @@ class AnalyticsPage(ctk.CTkFrame):
         self._set_status("Loading data...", kind="loading")
         self._show_empty_state("Loading analytics...")
 
+        # Every distinct range across the chart filter and the six cards is
+        # fetched exactly once, then shared by whoever asked for it.
+        wanted: list[tuple[date | None, date | None]] = [(d_from, d_to)]
+        for i in self._card_modes:
+            wanted.append(self._card_range(i))
+
         def _worker():
             try:
-                sf = d_from.isoformat() if d_from else None
-                st = d_to.isoformat() if d_to else None
-                result = {
-                    "summary": self.db.get_summary(locs, sf, st),
-                    "daily": self.db.get_daily_totals(locs, sf, st),
-                    "by_location": self.db.get_location_totals(locs, sf, st),
-                    "prev_summary": {},
-                    "prev_daily": [],
-                }
-
-                if d_from and d_to:
-                    span = (d_to - d_from).days + 1
-                    prev_to = d_from - timedelta(days=1)
-                    prev_from = prev_to - timedelta(days=span - 1)
-                    pf = prev_from.isoformat()
-                    pt = prev_to.isoformat()
-                    result["prev_summary"] = self.db.get_summary(locs, pf, pt)
-                    result["prev_daily"] = self.db.get_daily_totals(
-                        locs, pf, pt)
-
-                self._query_results.put((query_id, result, None))
+                cache: dict[tuple, dict] = {}
+                for rng in wanted:
+                    key = _range_key(*rng)
+                    if key not in cache:
+                        cache[key] = self._fetch_range(locs, *rng)
+                self._query_results.put((query_id, cache, None))
             except Exception as exc:
                 self._query_results.put((query_id, None, exc))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _fetch_range(self, locs, d_from: date | None, d_to: date | None) -> dict:
+        """One range's numbers, including its prior-period comparison."""
+        sf = d_from.isoformat() if d_from else None
+        st = d_to.isoformat() if d_to else None
+        out = {
+            "summary": self.db.get_summary(locs, sf, st),
+            "daily": self.db.get_daily_totals(locs, sf, st),
+            "by_location": self.db.get_location_totals(locs, sf, st),
+            "prev_summary": {},
+            "prev_daily": [],
+        }
+        if d_from and d_to:
+            span = (d_to - d_from).days + 1
+            prev_to = d_from - timedelta(days=1)
+            prev_from = prev_to - timedelta(days=span - 1)
+            pf = prev_from.isoformat()
+            pt = prev_to.isoformat()
+            out["prev_summary"] = self.db.get_summary(locs, pf, pt)
+            out["prev_daily"] = self.db.get_daily_totals(locs, pf, pt)
+        return out
 
     def _drain_query_results(self):
         try:
@@ -899,11 +1219,13 @@ class AnalyticsPage(ctk.CTkFrame):
                 "The analytics view could not load data. Check the database connection and try again.")
             return
 
-        self._summary = result.get("summary", {}) if result else {}
-        self._daily = result.get("daily", []) if result else []
-        self._by_location = result.get("by_location", []) if result else []
-        self._prev_summary = result.get("prev_summary", {}) if result else {}
-        self._prev_daily = result.get("prev_daily", []) if result else []
+        self._range_data = result or {}
+        g = self._range_data.get(_range_key(*self._current_range), {})
+        self._summary = g.get("summary", {})
+        self._daily = g.get("daily", [])
+        self._by_location = g.get("by_location", [])
+        self._prev_summary = g.get("prev_summary", {})
+        self._prev_daily = g.get("prev_daily", [])
 
         self._update_kpis()
         self._render_active_chart()
@@ -920,19 +1242,27 @@ class AnalyticsPage(ctk.CTkFrame):
         self._refresh_dates_and_query()
 
     def _refresh_dates_and_query(self):
+        def _parse(v):
+            try:
+                return datetime.strptime(v, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return None
+
         min_d, max_d = self.db.get_date_range()
-        if min_d:
-            try:
-                self._dp_from.value = datetime.strptime(
-                    min_d, "%Y-%m-%d").date()
-            except (ValueError, TypeError):
-                pass
-        if max_d:
-            try:
-                self._dp_to.value = datetime.strptime(max_d, "%Y-%m-%d").date()
-            except (ValueError, TypeError):
-                pass
-        self._select_preset(self._active_preset)
+        # A restored custom range wins over the data's own bounds; without
+        # this the pickers get reset every time the page is shown.
+        start = self._pending_from or (_parse(min_d) if min_d else None)
+        end = self._pending_to or (_parse(max_d) if max_d else None)
+        if start:
+            self._dp_from.value = start
+        if end:
+            self._dp_to.value = end
+        self._pending_from = self._pending_to = None
+
+        self._select_preset(self._active_preset, override_cards=False)
+        if self._active_preset == "custom":
+            # _select_preset only reveals the custom row; it never queries.
+            self._query(self._dp_from.value, self._dp_to.value)
 
     # ══════════════════════════════════════════════════════════════
     #  RENDER DISPATCHER
@@ -1623,7 +1953,7 @@ class AnalyticsPage(ctk.CTkFrame):
             else:
                 self._loc_btn.configure(text=f"{n} Locations ▾")
             popup.destroy()
-            self._select_preset(self._active_preset)
+            self._select_preset(self._active_preset, override_cards=False)
 
         ctk.CTkButton(btn_frame, text="Apply", width=80, height=28,
                       corner_radius=6, fg_color=ACCENT, hover_color=ACCENT_HOVER,
