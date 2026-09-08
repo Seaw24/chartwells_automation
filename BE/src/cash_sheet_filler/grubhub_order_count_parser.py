@@ -9,6 +9,10 @@ for the cash-sheet order-count cell.
 Total Merchant Sales is also collected per venue — "... - Choose Your Own
 Adventure" sibling venues contribute that figure to the cash sheet's
 "1M Meal" column instead of an order count.
+
+Refund Count is collected alongside the order count so callers can ask for a
+net count (orders minus refunds); "... - Swoop Swap Shop" siblings use that
+net figure for the cash sheet's "Less transfer" column.
 """
 
 import csv
@@ -25,6 +29,7 @@ class GrubhubOrderCountParser(BaseParser):
     COL_VENUE = 3
     COL_TOTAL_SALES = 7
     COL_ORDER_COUNT = 8
+    COL_REFUND_COUNT = 9
     MERGE_SUFFIX = " - Meal Transfer"
 
     def __init__(self, file_path, tracker=None):
@@ -32,6 +37,7 @@ class GrubhubOrderCountParser(BaseParser):
         self.file_path = file_path
         self.data = {}
         self.sales = {}
+        self.refunds = {}
         self._unmapped_venues = set()
         self._order_total = 0
         self._row_count = 0
@@ -93,6 +99,7 @@ class GrubhubOrderCountParser(BaseParser):
             "venue": "COL_VENUE",
             "total merchant sales": "COL_TOTAL_SALES",
             "order count": "COL_ORDER_COUNT",
+            "refund count": "COL_REFUND_COUNT",
         }
         for name, attr in col_map.items():
             expected_idx = getattr(self, attr)
@@ -106,6 +113,10 @@ class GrubhubOrderCountParser(BaseParser):
                     setattr(self, attr, i)
                     break
             else:
+                # An export predating the Refund Count column still parses;
+                # its refunds simply count as zero.
+                if attr == "COL_REFUND_COUNT":
+                    self.COL_REFUND_COUNT = None
                 self._log_warning(f"Column '{name}' not found in header")
 
     def _process_row(self, i, row):
@@ -113,6 +124,10 @@ class GrubhubOrderCountParser(BaseParser):
                       self.COL_ORDER_COUNT)
         if len(row) <= max_idx:
             return
+        has_refund_col = (
+            self.COL_REFUND_COUNT is not None
+            and len(row) > self.COL_REFUND_COUNT
+        )
 
         date_str = row[self.COL_DATE].strip()
         if not date_str or date_str.lower().startswith("total"):
@@ -122,6 +137,8 @@ class GrubhubOrderCountParser(BaseParser):
             date = self.normalize_date(date_str)
             count = self._parse_int(row[self.COL_ORDER_COUNT])
             sale = self._parse_dollar(row[self.COL_TOTAL_SALES])
+            refund = (self._parse_int(row[self.COL_REFUND_COUNT])
+                      if has_refund_col else 0)
         except ValueError:
             self._log_warning(f"Order-count parsing error in row {i}: {row[:4]}...")
             return
@@ -137,6 +154,8 @@ class GrubhubOrderCountParser(BaseParser):
         self.data[date][venue] = self.data[date].get(venue, 0) + count
         self.sales.setdefault(date, {})
         self.sales[date][venue] = self.sales[date].get(venue, 0.0) + sale
+        self.refunds.setdefault(date, {})
+        self.refunds[date][venue] = self.refunds[date].get(venue, 0) + refund
         self._order_total += count
         self._row_count += 1
 
@@ -152,6 +171,10 @@ class GrubhubOrderCountParser(BaseParser):
             target = self.sales.setdefault(date, {})
             for venue, sale in venues.items():
                 target[venue] = target.get(venue, 0.0) + sale
+        for date, venues in other.refunds.items():
+            target = self.refunds.setdefault(date, {})
+            for venue, refund in venues.items():
+                target[venue] = target.get(venue, 0) + refund
         self._unmapped_venues.update(other.get_unmapped_venues())
         self._order_total += other._order_total
         self._row_count += other._row_count
@@ -187,6 +210,25 @@ class GrubhubOrderCountParser(BaseParser):
 
     def get_sales(self, date, venue):
         return self._lookup(self.sales, date, venue)
+
+    def get_refund_count(self, date, venue):
+        return self._lookup(self.refunds, date, venue)
+
+    def get_net_count(self, date, venue):
+        """
+        Order count less refunds — what a Swoop Swap sibling transfers.
+
+        Returns None when the venue has no order count for the date, so a
+        missing venue stays distinguishable from a venue that netted zero.
+        Refunds can outnumber same-day orders (a refund may settle an order
+        placed on an earlier date), so the result is floored at zero rather
+        than sent to the cash sheet negative.
+        """
+        count = self._lookup(self.data, date, venue)
+        if count is None:
+            return None
+        refunds = self._lookup(self.refunds, date, venue) or 0
+        return max(0, count - refunds)
 
     def get_dates(self):
         return list(self.data.keys())

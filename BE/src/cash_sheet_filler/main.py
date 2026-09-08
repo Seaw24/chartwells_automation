@@ -450,7 +450,11 @@ class CashSheetAutofillEngine:
                 swoop_base = self._swoop_base_venue(venue)
                 cyoa_base = self._cyoa_base_venue(venue)
                 if swoop_base:
-                    value = f"{count:>10} order(s)"
+                    refunds = parser.get_refund_count(date, venue) or 0
+                    net = parser.get_net_count(date, venue) or 0
+                    value = (f"{net:>10} order(s)" if not refunds
+                             else f"{net:>10} order(s) ({count} − {refunds} "
+                                  "refunded)")
                     dest = (f"→ Less transfer ({col('swoop_swap')}) "
                             f"on '{swoop_base}' row")
                 elif cyoa_base:
@@ -807,11 +811,11 @@ class CashSheetAutofillEngine:
             date_groups = self._group_grubhub_venues(
                 grub_date, venues, parser, grubhub_filename, order_counts)
 
-            for (casheet_path, loc_in_casheet, loc_in_db), grp in date_groups.items():
+            for (casheet_path, loc_in_casheet), grp in date_groups.items():
                 if self._stopped("Grubhub"):
                     return
                 self._fill_grubhub_group(
-                    grub_date, grp, casheet_path, loc_in_casheet, loc_in_db)
+                    grub_date, grp, casheet_path, loc_in_casheet)
 
         # Surface anything we saw but couldn't map. These don't fail the run
         # but are useful hints for the user to update their config.
@@ -830,9 +834,15 @@ class CashSheetAutofillEngine:
     def _group_grubhub_venues(self, grub_date, venues, parser,
                               grubhub_filename, order_counts=None):
         """
-        Build a {(casheet_path, loc_in_casheet, loc_in_db): {venues, data_list}}
-        map. Multiple Grubhub venues can land on the same cash sheet row — for
+        Build a {(casheet_path, loc_in_casheet): {venues, data_list}} map.
+        Multiple Grubhub venues can land on the same cash sheet row — for
         example a base venue and its "Meal Transfer" sibling — so we aggregate.
+
+        The key is the row, not the config entry: a workbook row can only hold
+        one set of figures, so every venue routed to it has to merge. Keying on
+        the DB label too would split venues whose entries agree on the row but
+        disagree on that label, and the second group would then overwrite the
+        first row's figures instead of adding to them.
         """
         date_groups = {}
         for venue in venues:
@@ -870,7 +880,9 @@ class CashSheetAutofillEngine:
             data["swoop_swap"] = None
             data["cyoa"] = None
             if data["is_swoop"]:
-                value = (order_counts.get_count(grub_date, venue)
+                # Less transfer is a net figure: orders that were refunded
+                # never transferred, so they come back off the count.
+                value = (order_counts.get_net_count(grub_date, venue)
                          if order_counts else None)
                 data["swoop_swap"] = value
                 missing_bucket = "missing_swoop"
@@ -885,14 +897,16 @@ class CashSheetAutofillEngine:
                 data["count"] = value
                 missing_bucket = "missing_counts"
 
-            key = (casheet_path, loc_in_casheet, loc_in_db)
+            key = (casheet_path, loc_in_casheet)
             grp = date_groups.setdefault(
                 key,
-                {"venues": [], "data_list": [], "missing_counts": [],
-                 "missing_swoop": [], "missing_cyoa": []},
+                {"venues": [], "data_list": [], "db_locs": [],
+                 "missing_counts": [], "missing_swoop": [],
+                 "missing_cyoa": []},
             )
             grp["venues"].append(venue)
             grp["data_list"].append(data)
+            grp["db_locs"].append(loc_in_db)
             if value is None:
                 grp[missing_bucket].append(venue)
         return date_groups
@@ -1035,14 +1049,41 @@ class CashSheetAutofillEngine:
         t.trace(f"│ {'balance':<12}: tenders ${tender_sum:.2f} vs sales "
                 f"${merged['total_sales']:.2f}  {mark}")
 
+    def _group_db_location(self, grub_date, loc_in_casheet, db_locs,
+                           venue_names):
+        """
+        The DB label for a merged row — first entry's, with a warning if the
+        config's entries disagree.
+
+        Venues that share a cash-sheet row are one register as far as the
+        workbook is concerned, so their merged figures get one DB record. If
+        GRUBHUB_VENUE_MAP gives them different DB labels, only one can be
+        used; say so, because that disagreement is a config mistake the user
+        can fix and it also skews the analytics.
+        """
+        if not db_locs:
+            return loc_in_casheet
+        chosen = db_locs[0]
+        distinct = list(dict.fromkeys(db_locs))
+        if len(distinct) > 1:
+            self.tracker.warning(
+                f"{', '.join(venue_names)} all fill the '{loc_in_casheet}' "
+                f"row on {grub_date} but are mapped to different database "
+                f"locations ({', '.join(distinct)}); recording them under "
+                f"'{chosen}'. Give them the same location in the Grubhub "
+                "venue map to silence this.")
+        return chosen
+
     def _fill_grubhub_group(self, grub_date, grp, casheet_path,
-                            loc_in_casheet, loc_in_db):
+                            loc_in_casheet):
         """Aggregate (if needed), fold discounts in, and fill one cash row."""
         venue_names = grp["venues"]
         data_list = grp["data_list"]
         missing_counts = grp.get("missing_counts", [])
         missing_swoop = grp.get("missing_swoop", [])
         missing_cyoa = grp.get("missing_cyoa", [])
+        loc_in_db = self._group_db_location(
+            grub_date, loc_in_casheet, grp.get("db_locs", []), venue_names)
 
         # Always aggregate — even a single-venue group goes through the same
         # sibling routing, so a Swoop sibling that shows up alone is still
