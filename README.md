@@ -1,10 +1,10 @@
 # Chartwells Automation
 
-A Windows desktop app that turns a **50-minute daily reconciliation of ~$77K in sales across 15+ campus dining locations into one click** — parsing three unrelated vendor reporting formats, normalizing them to a shared schema, autofilling the accounting ledgers, verifying the result, and surfacing the numbers on an executive analytics dashboard.
+A Windows desktop app that turns a **1-hour daily reconciliation of ~$77K in sales across 15+ campus dining locations into one click** — parsing three unrelated vendor reporting formats, normalizing them to a shared schema, autofilling the accounting ledgers, verifying the result, and surfacing the numbers on an executive analytics dashboard.
 
 Built for the Chartwells Higher Education dining team at the University of Utah. Non-technical staff run it daily as a packaged `.exe` with zero setup.
 
-> **Impact:** ~30 min/day of manual data entry eliminated per run · 150+ staff hours saved since Nov 2025 · absorbed a data-entry role that was never backfilled.
+> **Impact:** ~1 hour/day of manual data entry eliminated · 300+ staff hours saved since Nov 2025 · absorbed a data-entry role that was never backfilled.
 
 ![Demo — analytics dashboard, one-click autofill run, and print options](docs/demo.gif)
 
