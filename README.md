@@ -1,37 +1,41 @@
 # Chartwells Automation
 
-A Windows desktop app that turns a **1-hour daily reconciliation of ~$77K in sales across 15+ campus dining locations into one click** — parsing three unrelated vendor reporting formats, normalizing them to a shared schema, autofilling the accounting ledgers, verifying the result, and surfacing the numbers on an executive analytics dashboard.
+A Windows desktop app that turns a 1-hour daily reconciliation of about $77K in sales across 17 campus dining locations into one click. It reads three vendor report formats, converts them to one shared schema, fills in the accounting ledgers, checks the result and shows the numbers on an analytics dashboard.
 
-Built for the Chartwells Higher Education dining team at the University of Utah. Non-technical staff run it daily as a packaged `.exe` with zero setup.
+Built for the Chartwells Higher Education dining team at the University of Utah. Staff with no technical background run it every day as a packaged `.exe` that needs no setup.
 
-> **Impact:** ~1 hour/day of manual data entry eliminated · 300+ staff hours saved since Nov 2025 · absorbed a data-entry role that was never backfilled.
+| | |
+|---|---|
+| Time saved | about 1 hour of manual data entry a day |
+| Total | 300+ staff hours since Nov 2025 |
+| Staffing | took over a data-entry role that was never refilled |
 
-![Demo — analytics dashboard, one-click autofill run, and print options](docs/demo.gif)
+![Demo of the analytics dashboard, a one-click autofill run and the print options](docs/demo.gif)
 
-*Live demo: analytics dashboard → one-click cash-sheet autofill with a streaming validation log → print options. Dollar figures are blurred for confidentiality.*
+*The demo opens the analytics dashboard, runs the cash-sheet autofill with its live validation log, then opens the print options. Dollar figures are blurred.*
 
 ---
 
 ## The problem
 
-Every day, three separate point-of-sale / delivery systems each spit out reports in a **different, incompatible format**:
+Three point-of-sale and delivery systems each send a daily report in a different format:
 
 | Source | Format | Shape |
 | --- | --- | --- |
-| **Infor** (campus POS) | Section-based plain-text CSV | 1 file = 1 venue, 1 day |
-| **Tavlo** (POS) | SpreadsheetML XML (`.xls`) | 1 file = 1 venue, 1 day |
-| **Grubhub** (delivery) | Two CSVs (transactions + order counts) | 1 file = *many* venues × *many* days × payment methods |
+| Infor (campus POS) | Plain-text CSV split into sections | 1 file per venue per day |
+| Tavlo (POS) | SpreadsheetML XML (`.xls`) | 1 file per venue per day |
+| Grubhub (delivery) | Two CSVs, transactions and order counts | 1 file covering many venues, days and payment methods |
 
-A staff member used to open each report, read off sales / tax / guest counts / a dozen tender types, and hand-key them into the correct row of the correct weekday tab of the correct location's Excel "cash sheet" — for every venue, every day. Then repeat the whole thing to roll the cash sheets up into a master tender-breakdown workbook. It was slow, and a single mistyped number silently broke reconciliation.
+A staff member opened each report and read off sales, tax, guest counts and a dozen tender types. They typed each number into the right row, on the right weekday tab, of the right location's Excel cash sheet, for every venue every day. Then they did it again to roll the cash sheets into a master tender-breakdown workbook. It was slow, and one mistyped number broke reconciliation without anyone noticing.
 
 ## What the app does
 
-1. **Parses** all three vendor formats and **normalizes** every payment type down to one shared 12-tender vocabulary.
-2. **Autofills** each location's Excel cash sheet — the right cell, row, and weekday tab — driven entirely by a JSON config (no code changes to add a venue).
-3. **Verifies** each fill by re-reading the workbook's over/short column, and flags any source→ledger mismatch instead of letting it pass silently.
-4. **Rolls up** the filled cash sheets into a single master tender-breakdown workbook.
-5. **Logs** every record to a Postgres database, which powers a built-in **analytics dashboard** (revenue trends, payment mix, per-location ranking, meals served, flex balances).
-6. **Prints** the finished sheets and the Infor / Tavlo reports to a chosen printer (Windows; Grubhub CSVs are autofill-only and never printed), **auto-updates** itself from GitHub Releases, and **tracks hours saved**.
+1. It parses all three vendor formats and maps every payment type to one list of 12 tenders.
+2. It fills each location's Excel cash sheet in the right cell, row and weekday tab. A JSON config drives the mapping, so adding a venue needs no code change.
+3. It re-reads each sheet's over/short column after filling it and flags any mismatch between the report and the ledger.
+4. It rolls the filled cash sheets into one master tender-breakdown workbook.
+5. It saves every record to a Postgres database. The built-in dashboard reads from it to show revenue trends, payment mix, location rankings, meals served and flex balances.
+6. It prints the finished sheets and the Infor and Tavlo reports to a chosen printer on Windows. Grubhub CSVs are filled in but never printed. The app also updates itself from GitHub Releases and tracks hours saved.
 
 ---
 
@@ -41,7 +45,7 @@ A staff member used to open each report, read off sales / tax / guest counts / a
 | --- | --- |
 | ![Autofill running](docs/screenshots/autofill-running.png) | ![Payment mix](docs/screenshots/analytics-payment-mix.png) |
 
-*Left: the reconciliation engine streaming a live result log — each recognized tender, per-venue sales, guest counts, and a per-sheet validation pass. Right: the analytics view reading the same records back from the database.*
+*On the left, the engine streams its result log: each tender it recognized, sales and guest counts per venue, and a validation line for each sheet. On the right, the analytics page reads the same records back from the database.*
 
 ---
 
@@ -57,49 +61,49 @@ flowchart LR
 
     subgraph Engine["Cash Sheet Engine (BE)"]
         P[Format-specific parsers]
-        N["Normalize to shared<br/>12-tender schema"]
-        F["openpyxl autofiller<br/>config-driven cell mapping"]
-        V["Verify: re-read over/short<br/>+ flag unmapped venues/tenders"]
+        N["Map to the shared<br/>12-tender schema"]
+        F["openpyxl autofiller<br/>cell mapping from config"]
+        V["Verify: re-read over/short,<br/>flag unmapped venues and tenders"]
     end
 
     subgraph Outputs
         CS[(Excel cash sheets)]
         TB[("Master tender<br/>breakdown workbook")]
-        DB[("Postgres / Supabase<br/>tender_records")]
+        DB[("Postgres on Supabase<br/>tender_records")]
     end
 
     I & T & G --> P --> N --> F --> V --> CS
     CS --> TBE[Tender Breakdown Engine] --> TB
-    V --> DB --> A["Analytics dashboard<br/>matplotlib + CustomTkinter"]
+    V --> DB --> A["Analytics dashboard<br/>matplotlib and CustomTkinter"]
 
     UI[CustomTkinter desktop UI] -.drives.-> Engine
     UI -.drives.-> TBE
-    PR[Windows printing\npywin32 Excel COM] -.optional.-> CS
+    PR[Windows printing<br/>pywin32 Excel COM] -.optional.-> CS
 ```
 
-**Three-layer design:**
+The code has three layers:
 
-- **UI (`UI/`)** — a single-window CustomTkinter app: a hover-expanding sidebar and three pages (Home / Analytics / Auto-Fill Center). The UI never does business logic; it spawns the engines on worker threads and streams their events into a live, color-coded result log.
-- **Backend (`BE/src/`)** — the parsers, normalization, Excel autofillers, verification, printing, updater, and DB manager. Every engine is UI-agnostic (takes an `on_event` callback and a cooperative `stop_event`), so it can run headless or under the GUI.
-- **Data** — a PostgreSQL database (hosted on Supabase, accessed via `psycopg2`) is the system of record that decouples "filling the sheets" from "reporting on the numbers."
+- `UI/` is one CustomTkinter window with a sidebar and three pages: Home, Analytics and Auto-Fill Center. The UI holds no business logic. It starts the engines on worker threads and streams their events into a color-coded log.
+- `BE/src/` holds the parsers, the Excel autofillers, verification, printing, the updater and the database manager. No engine imports Tkinter. Each one takes an `on_event` callback and a `stop_event`, so it can run with or without the GUI.
+- A Postgres database on Supabase, reached through `psycopg2`, is the system of record. Filling the sheets and reporting on the numbers are separate jobs that meet only at the database.
 
 ---
 
 ## How the pipeline works
 
-**1 · Parse.** Each vendor gets a dedicated parser subclassing a small `BaseParser`. They handle format-specific ugliness — Infor's section markers, Tavlo's sparse SpreadsheetML rows (`ss:Index`), Grubhub's per-venue/per-date nesting and column names that are re-resolved by header at parse time so the parser survives column shifts.
+**1. Parse.** Each vendor has its own parser built on a small `BaseParser`. The Infor parser reads section markers. The Tavlo parser handles sparse SpreadsheetML rows that skip cells with `ss:Index`. The Grubhub parser handles data nested by venue and date, and it finds columns by header name each run, so it still works when Grubhub moves a column.
 
-**2 · Normalize.** Every raw tender name ("AT Meal Transfer", "Mastercard", "AT Flex Dollars"…) is mapped through a config table into one of **12 canonical tenders** (`contract_card, flex, transfer, coupons, ucash, ushop, chartwellsDCB, dining_dollars, amex, discover, mc, visa`). Accented location names are Unicode-normalized so `"Café"` matches `"Cafe"`. The output of every parser is the same shape: `location, date, total_sales, tax, count, net_sales, tenders{}`.
+**2. Normalize.** A config table maps every raw tender name ("AT Meal Transfer", "Mastercard", "AT Flex Dollars" and so on) to one of 12 tenders: `contract_card, flex, transfer, coupons, ucash, ushop, chartwellsDCB, dining_dollars, amex, discover, mc, visa`. Location names go through Unicode normalization, so `"Café"` matches `"Cafe"`. Every parser returns the same shape: `location, date, total_sales, tax, count, net_sales, tenders{}`.
 
-**3 · Autofill.** `openpyxl` opens each location's workbook, picks the tab matching the report's weekday, finds the location's row (exact match, then a "contains" fallback so `grubhub` matches inside `City Edge - grubhub`), and writes each value to the column named in the JSON config. **A whole config, not code, defines the mapping** — 21 location routes and 20 Grubhub venue groupings live in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json), all editable from the in-app **Cash Sheet Settings** tab.
+**3. Autofill.** `openpyxl` opens each location's workbook, picks the tab for the report's weekday and finds the location's row. It writes each value to the column the JSON config names. The config defines the whole mapping, with 22 location routes and 40 Grubhub venues mapped to 20 cash-sheet rows in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json). Staff can edit all of it from the Cash Sheet Settings tab in the app.
 
-**4 · Verify (the part that matters).** After writing, the engine re-opens the sheet and reads the spreadsheet's own **over/short** column; a non-zero value flags the fill as a validation failure. `openpyxl` writes formulas but never evaluates them, so when that column holds a formula the engine reports the check as *unverified* rather than claiming a pass it didn't earn. Independently of Excel, the trace sums the tender columns against sales in Python — so a mismatch (an unmapped tender leaking into the total, say) surfaces before the workbook is ever opened. Parsers additionally collect any tender or venue they couldn't map and surface them as warnings. This cross-check is what drove several early parser fixes and kept accuracy holding as new venues were added.
+**4. Verify.** After writing, the engine reopens the sheet and reads its over/short column. A non-zero value marks the fill as failed. `openpyxl` writes formulas but never calculates them, so when that column holds a formula, the engine reports the check as unverified instead of passed. Separately, the engine sums the tender columns against sales in Python, so a mismatch shows up before anyone opens the workbook. An unmapped tender leaking into the total is one example. Parsers also list any tender or venue they could not map as warnings. This check caught several early parser bugs and kept the numbers right as new venues were added.
 
-**5 · Aggregate.** The Tender Breakdown engine reads the filled cash sheets back (values only, via `data_only=True`) and writes each location's daily figures into the correct date row of a single master workbook — including special cases like summing multi-register venues.
+**5. Roll up.** The Tender Breakdown engine reads the filled cash sheets back as values (`data_only=True`) and writes each location's daily figures into the right date row of one master workbook. It handles special cases such as adding up venues with more than one register.
 
-**6 · Persist & report.** Each record is UPSERTed into `tender_records` (`ON CONFLICT (report_date, raw_location, location, source)`), and the analytics page reads aggregates back for KPIs and charts — with period-over-period comparison and a location filter.
+**6. Save and report.** The engine upserts each record into `tender_records` with `ON CONFLICT (report_date, raw_location, location, source)`, so a second run on the same day updates rows instead of adding duplicates. The analytics page reads totals back for its KPIs and charts, with period-over-period comparison and a location filter.
 
-**Following the money.** With `"verbose_trace": true` in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json) (the default), the log shows the arithmetic behind every figure rather than just the totals — each CSV row's charged amount and the service fee subtracted from it, grouped under its venue; how several venues sum into one cash-sheet row; the discount added back to both sales and the `visa` tender; the tenders-vs-sales balance; and the exact cell each number was written to. Set it to `false` for totals-only output.
+**The arithmetic trace.** With `"verbose_trace": true` in [`cash_sheet_config.json`](BE/src/cash_sheet_filler/cash_sheet_config.json), which is the default, the log shows how it got every figure. It lists each CSV row's charged amount and the service fee taken off it, grouped by venue. It shows how several venues add up to one cash-sheet row, the discount added back to sales and to the `visa` tender, the tenders-against-sales balance, and the exact cell each number went into. Set it to `false` to log totals only.
 
 ```
 ┌ Absurd Bird · 07/28/2025  (3 row(s))
@@ -117,32 +121,32 @@ flowchart LR
 
 ---
 
-## Adding venues & tenders yourself — no code needed
+## Adding venues and tenders without code
 
-Everything the engines rely on is editable from inside the app. The **Cash Sheet Settings** and **Tender Settings** tabs in the Auto-Fill Center expose the whole configuration as tables with **+ Add**, edit, and delete controls:
+The Cash Sheet Settings and Tender Settings tabs in the Auto-Fill Center show the whole configuration as tables you can add to, edit and delete from.
 
-![Tender Settings tab — filename mappings with add/edit/delete controls](docs/screenshots/tender-settings.png)
+![Tender Settings tab with filename mappings and add, edit and delete controls](docs/screenshots/tender-settings.png)
 
-- **Cash Sheet Locations** — route a new Infor / Tavlo report location: which cash-sheet workbook it belongs to, which register row inside the sheet, and the name shown on the Analytics page.
-- **Grubhub Venues** — the same routing for venues that appear on the Grubhub report.
-- **Fill Columns / Checking Columns** — change which spreadsheet column each value is written to, and which columns are re-read during verification.
-- **Tender maps** — teach the app a new tender name from any vendor report (Infor, Tavlo, or Grubhub) and map it to one of the 12 canonical tenders.
-- **Tender Settings** — the master-breakdown side: filename → location mappings, each location's start column, and the date / data-column layout.
+- Cash Sheet Locations sets where a new Infor or Tavlo location goes: its workbook, its register row and its name on the Analytics page.
+- Grubhub Venues does the same for venues on the Grubhub report.
+- Fill Columns and Checking Columns set which spreadsheet column each value goes into and which columns the verify step reads.
+- Tender maps teach the app a new tender name from any vendor and map it to one of the 12 tenders.
+- Tender Settings covers the master workbook: filename to location mappings, each location's start column and the date and data column layout.
 
-Dialogs describe every field with concrete examples, validate numeric input, block duplicate names, and each change is written straight back to the JSON config the engines read — so a non-technical staff member can onboard a brand-new dining venue in under a minute, in the packaged `.exe`, without touching a file.
+Each dialog explains its fields with examples, checks numeric input and blocks duplicate names. Every change goes straight to the JSON config the engines read. Staff can add a new dining venue in under a minute from the packaged `.exe` without opening a file.
 
 ---
 
 ## Tech stack
 
-- **Language:** Python 3.11
-- **Desktop UI:** CustomTkinter (Tkinter)
-- **Charts:** Matplotlib (embedded via `FigureCanvasTkAgg`, rendered off the main thread)
-- **Excel I/O:** openpyxl (read + write, formula-aware verification)
-- **Database:** PostgreSQL on Supabase via psycopg2 (parameterized, column-name validated)
-- **Windows printing:** pywin32 (Excel COM automation + printer `DevMode` control)
-- **Packaging / CI:** PyInstaller + GitHub Actions → signed Windows build published as a GitHub Release
-- **Auto-update:** GitHub Releases polling with in-app download + self-replace
+- Python 3.11
+- CustomTkinter for the desktop UI
+- Matplotlib for charts, embedded with `FigureCanvasTkAgg` and drawn off the main thread
+- openpyxl to read and write Excel, including the formula-aware check
+- PostgreSQL on Supabase through psycopg2, with parameterized queries and validated column names
+- pywin32 for Excel COM printing and printer settings on Windows
+- PyInstaller and GitHub Actions to build the Windows app and publish it as a GitHub Release
+- An in-app updater that checks GitHub Releases, downloads the new build and replaces itself
 
 ---
 
@@ -150,31 +154,31 @@ Dialogs describe every field with concrete examples, validate numeric input, blo
 
 ```
 BE/src/
-├── cash_sheet_filler/        # Vendor parsers + Excel autofill engine
+├── cash_sheet_filler/        # Vendor parsers and the Excel autofill engine
 │   ├── base_parser.py            # shared logging base class
-│   ├── infor_parser.py           # Infor section-based CSV
+│   ├── infor_parser.py           # Infor CSV with sections
 │   ├── tavlo_parser.py           # Tavlo SpreadsheetML XML
-│   ├── grubhub_parser.py         # Grubhub transactions (sales/tax/tenders)
-│   ├── grubhub_order_count_parser.py  # Grubhub order counts (source of truth for counts)
-│   ├── excel_autofiller.py       # openpyxl cell targeting + over/short verification
-│   ├── main.py                   # CashSheetAutofillEngine (orchestration)
-│   └── cash_sheet_config.json    # location routing, tender maps, cell columns
-├── tender_break/             # Cash sheets → master tender-breakdown rollup
-├── db/tendersdb_manager.py   # Postgres manager (upsert + analytics aggregates)
+│   ├── grubhub_parser.py         # Grubhub transactions (sales, tax, tenders)
+│   ├── grubhub_order_count_parser.py  # Grubhub order counts (the source for counts)
+│   ├── excel_autofiller.py       # openpyxl cell targeting and over/short check
+│   ├── main.py                   # CashSheetAutofillEngine (runs the steps)
+│   └── cash_sheet_config.json    # location routes, tender maps, cell columns
+├── tender_break/             # Cash sheets to the master tender-breakdown workbook
+├── db/tendersdb_manager.py   # Postgres manager (upsert and analytics totals)
 ├── printer.py                # Windows Excel COM printing
 ├── updater.py                # GitHub Releases auto-updater (CURRENT_VERSION)
-├── time_tracker.py           # "hours saved" metric (time_saved.json)
-└── path_helper.py            # frozen (.exe) vs dev path resolution
+├── time_tracker.py           # hours-saved counter (time_saved.json)
+└── path_helper.py            # path lookup for the frozen .exe and for development
 
 UI/
-├── dashboard.py              # App window, sidebar + swappable pages
+├── dashboard.py              # app window, sidebar and pages
 └── components/
-    ├── sidebar.py            # hover-expand nav
-    ├── autofill_center.py    # Autofill Center view (Cash Sheet / Tender / configs)
-    ├── autofill_center_runtime.py  # threads, stop events, live log streaming
-    ├── analyticsPage.py      # executive dashboard (KPIs + 5 chart tabs)
+    ├── sidebar.py            # sidebar that expands on hover
+    ├── autofill_center.py    # Auto-Fill Center (cash sheet, tender, config tabs)
+    ├── autofill_center_runtime.py  # threads, stop events, live log
+    ├── analyticsPage.py      # dashboard with KPIs and 5 chart tabs
     ├── taskManager.py        # team task board
-    └── theme.py              # single "Deep-Teal" design system
+    └── theme.py              # one shared color theme
 ```
 
 ---
@@ -182,51 +186,48 @@ UI/
 ## Getting started (development)
 
 ```bash
-# 1. Create + activate a virtual environment
+# 1. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\Activate.ps1
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Point the DB at Postgres (analytics + record log)
+# 3. Point the app at Postgres (analytics and the record log)
 echo "DATABASE_URL=postgresql://..." > .env
 
 # 4. Run
 python UI/dashboard.py
 ```
 
-> Parsing and autofill run cross-platform; **printing and self-update are Windows-only** (they use pywin32 / self-replacing the `.exe`) and no-op elsewhere.
+Parsing and autofill run on any OS. Printing and self-update use pywin32 and replace the `.exe`, so they only work on Windows and do nothing elsewhere.
 
 ### Build the Windows executable
 
 ```bash
 pyinstaller chartwells.spec --clean
-# → dist/ChartwellsAutomation/ChartwellsAutomation.exe
+# Output: dist/ChartwellsAutomation/ChartwellsAutomation.exe
 ```
 
-CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same artifact on `windows-latest` and publishes it to a GitHub Release on a `v*.*.*` tag, which the in-app updater then picks up. `CURRENT_VERSION` (currently `1.1.24`) lives in [`updater.py`](BE/src/updater.py).
+CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same app on `windows-latest` and publishes it as a GitHub Release when a `v*.*.*` tag is pushed. The in-app updater then picks it up. `CURRENT_VERSION` lives in [`updater.py`](BE/src/updater.py).
 
-Config, `.env`, and the hours-saved file are all resolved to an editable `config/` folder next to the `.exe` in frozen mode, so non-technical users can adjust mappings without touching code. That folder is seeded from the bundled defaults on first run and never overwritten afterwards, so on every later launch the loaders top it up instead: any key the shipped default has gained — a new location, a new tender, a new setting — is merged in, while every value already there (including the user's own locations and folder paths) is left untouched. Nothing is ever replaced or removed.
+In the packaged app, the config, `.env` and the hours-saved file live in an editable `config/` folder next to the `.exe`, so staff can change mappings without touching code. The first run copies the bundled defaults into that folder. After that, each launch only adds what the shipped defaults have gained, such as a new location, tender or setting. It never replaces or removes a value, including staff-added locations and folder paths.
 
 ---
 
 ## Demo walkthrough
 
-The app opens on the dashboard and follows this path:
-
-1. **Dashboard opens on Analytics** — the *Financial Overview* with KPI cards (Total Revenue, Flex Total/Balance, Daily Average, Meals Served, Top Location) and a Daily Revenue bar chart. Data is live from the database.
-2. **Sidebar → Auto-Fill Center** → the **Cash Sheet** tab. The *Cash Sheet Folder* and *Day Reports Folder* are prefilled; the header shows a running **hours-saved** badge.
-3. **Run the fillings** — click **Run Cash Sheet Autofill**. The button flips to a red **Stop Autofill**, status goes `Ready → Processing…`, and the **Result Log** streams each recognized tender, per-venue totals, guest counts, and a per-sheet `validated successfully` line, while the ✓ / ⚠ / ✗ badges tick up.
-4. **Interrupt it** — click the red **Stop Autofill** button; the run cooperatively stops and the status reads **Cancelled**. *(Optional config beat: open **Print options** and switch the printer / Color → Black-and-white, then **Save** — this changes the next run's print settings; it does not itself stop a run.)*
-5. **Sidebar → Analytics** — switching back re-queries the database (`on_show()`), so the charts refresh. Click through the chart tabs — **Overview** (daily revenue bars), **Locations** (ranked bars), **Payment Mix** (donut), **Trends** (current vs. prior period lines), **Detail Table** — and toggle date presets or the **All Locations** filter.
+1. The app opens on the Analytics page. It shows the Financial Overview with KPI cards (Total Revenue, Flex Total and Balance, Daily Average, Meals Served, Top Location) and a daily revenue bar chart, all read from the database.
+2. Open Auto-Fill Center from the sidebar and go to the Cash Sheet tab. The Cash Sheet Folder and Day Reports Folder are already filled in, and the header shows the hours-saved count.
+3. Click Run Cash Sheet Autofill. The button turns into a red Stop Autofill button and the status changes from Ready to Processing. The result log streams each tender, venue totals, guest counts and a "validated successfully" line for each sheet, and the success, warning and error counters go up.
+4. Click Stop Autofill. The run stops at the next safe point and the status reads Cancelled. You can also open Print options to change the printer or switch to black and white. That changes the next run's settings and does not stop the current run.
+5. Go back to Analytics. The page queries the database again when it opens (`on_show()`), so the charts refresh. The chart tabs are Overview (daily revenue), Locations (ranked), Payment Mix (donut), Trends (this period against the last) and Detail Table. You can switch date presets or filter by location.
 
 ---
 
-## Design decisions worth calling out
+## Design decisions
 
-- **Config-driven, not hard-coded.** Adding a dining venue is a JSON edit (or a few clicks in the in-app config editor) — the routing, tender vocabulary, and target cells are all data, not code. This is why the pipeline held accuracy as locations were added.
-- **Verification is a first-class stage.** The engine treats "the sheet saved" and "the sheet reconciles" as different outcomes. Catching silent source mismatches was the single most valuable feature to the accounting team.
-- **UI/engine separation.** Every engine is a plain class with an `on_event` callback and a cooperative `stop_event` — no Tkinter imports — so runs are cancellable, testable, and could be scripted headless.
-- **Database as the seam.** Filling ledgers and reporting on them are fully decoupled through Postgres, so the analytics dashboard is just a reader over an idempotent, upserted record log.
-```
+- **Config instead of code.** Adding a dining venue is a JSON edit or a few clicks in the settings tabs. Routes, tender names and target cells are all data, which is why accuracy held as locations were added.
+- **Verification as its own step.** The engine treats "the sheet saved" and "the sheet balances" as two different results. The accounting team found catching hidden mismatches more useful than anything else in the app.
+- **Engines separate from the UI.** Each engine is a plain class with an `on_event` callback and a `stop_event`, with no Tkinter imports. Runs can be cancelled, tested and scripted without the GUI.
+- **The database between filling and reporting.** The two jobs share nothing but Postgres, so the analytics dashboard only reads an upserted record log that a rerun can't duplicate.
