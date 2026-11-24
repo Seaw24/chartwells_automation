@@ -211,7 +211,9 @@ pyinstaller chartwells.spec --clean
 
 CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds the same app on `windows-latest` and publishes it as a GitHub Release when a `v*.*.*` tag is pushed. The in-app updater then picks it up. `CURRENT_VERSION` lives in [`updater.py`](BE/src/updater.py).
 
-In the packaged app, the config, `.env` and the hours-saved file live in an editable `config/` folder next to the `.exe`, so staff can change mappings without touching code. The first run copies the bundled defaults into that folder. After that, each launch only adds what the shipped defaults have gained, such as a new location, tender or setting. It never replaces or removes a value, including staff-added locations and folder paths.
+In the packaged app, the config and the hours-saved file live in an editable `config/` folder next to the `.exe`, so staff can change mappings without touching code. The first run copies the bundled defaults into that folder. After that, each launch only adds what the shipped defaults have gained, such as a new location, tender or setting. It never replaces or removes a value, including staff-added locations and folder paths.
+
+The database connection lives in a `.env` file next to the `.exe` on each staff machine, set up once by hand. Release assets are public, so the build never ships a `.env`, and CI fails if one appears in the tree or the output. The updater copies new files over the app folder and never deletes, so that `.env` survives every update.
 
 ---
 
